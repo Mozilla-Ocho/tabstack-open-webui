@@ -24,7 +24,7 @@ EVENT_ADAPTER: TypeAdapter[ResearchEvent] = TypeAdapter(ResearchEvent)
 
 
 def sdk_events(name: str) -> list[object]:
-    """Load a fixture as SDK-typed events; fails if the fixture does not match the SDK schema."""
+    """Load a fixture as SDK-typed events; fails if it does not match the SDK schema."""
     return [EVENT_ADAPTER.validate_python(e) for e in load_events(name)]
 
 
@@ -81,7 +81,9 @@ class FakeAgent:
 
 
 class FakeExtract:
-    def __init__(self, page: dict[str, object] | None, error: BaseException | None) -> None:
+    def __init__(
+        self, page: dict[str, object] | None, error: BaseException | None
+    ) -> None:
         self.page = page
         self.error = error
         self.calls: list[dict[str, object]] = []
@@ -136,7 +138,11 @@ class Recorder:
         return out
 
     def citations(self) -> list[dict[str, Any]]:
-        return [cast(dict[str, Any], e["data"]) for e in self.events if e["type"] == "citation"]
+        return [
+            cast(dict[str, Any], e["data"])
+            for e in self.events
+            if e["type"] == "citation"
+        ]
 
 
 def make_tool(client: FakeClient, **valves: object) -> Tools:
@@ -172,7 +178,7 @@ def public_callables(tool: object) -> list[str]:
 
 
 def model_schema(func: Callable[..., object]) -> dict[str, Any]:
-    """Mirror convert_function_to_pydantic_model (v0.12.3) closely enough to check the schema."""
+    """Mirror convert_function_to_pydantic_model (v0.12.3) well enough to check it."""
     hints = get_type_hints(func)
     doc = func.__doc__ or ""
     fields: dict[str, Any] = {}
@@ -242,7 +248,9 @@ def test_research_complete() -> None:
     stream = FakeStream(sdk_events("research_complete.jsonl"))
     client = FakeClient(stream=stream)
     recorder = Recorder()
-    result = run(make_tool(client).research("What changed?", __event_emitter__=recorder))
+    result = run(
+        make_tool(client).research("What changed?", __event_emitter__=recorder)
+    )
 
     assert client.created_with == [(KEY, 120)]
     assert client.agent.calls == [{"query": "What changed?", "mode": "fast"}]
@@ -260,9 +268,11 @@ def test_research_complete() -> None:
         "https://docs.example.org/web-search.md",
         "https://docs.example.org/web-search",
     ]
-    # Citations go out before the final status, so the sources are in place when it clears.
+    # Citations go out before the final status, so sources are in place when it clears.
     assert recorder.events[-1]["type"] == "status"
-    assert result.startswith("The example tool added a tools overview page in October 2026 [1].")
+    assert result.startswith(
+        "The example tool added a tools overview page in October 2026 [1]."
+    )
     assert "[4] Web search - https://docs.example.org/web-search" in result
     assert stream.closed
     assert client.exited
@@ -292,7 +302,9 @@ def test_research_stream_closes_without_terminal_event() -> None:
     client = FakeClient(stream=FakeStream(sdk_events("research_no_terminal.jsonl")))
     recorder = Recorder()
     result = run(make_tool(client).research("q", __event_emitter__=recorder))
-    assert result.startswith("Error: the connection to Tabstack closed before the research")
+    assert result.startswith(
+        "Error: the connection to Tabstack closed before the research"
+    )
     assert recorder.statuses()[-1] == ("Research failed", True)
 
 
@@ -301,7 +313,9 @@ def test_research_connection_dropped_mid_stream() -> None:
     events = sdk_events("research_no_terminal.jsonl")[:3]
     client = FakeClient(stream=FakeStream(events, fail_with=drop))
     result = run(make_tool(client).research("q"))
-    assert result.startswith("Error: the connection to Tabstack closed before the research")
+    assert result.startswith(
+        "Error: the connection to Tabstack closed before the research"
+    )
 
 
 def test_research_rejected_key_is_not_echoed() -> None:
@@ -315,7 +329,10 @@ def test_research_rejected_key_is_not_echoed() -> None:
     result = run(make_tool(client).research("q", __event_emitter__=recorder))
     assert result.startswith("Error: Tabstack rejected the API key.")
     assert KEY not in everything_sent(recorder, result)
-    assert recorder.statuses() == [("Starting research", False), ("Research failed", True)]
+    assert recorder.statuses() == [
+        ("Starting research", False),
+        ("Research failed", True),
+    ]
 
 
 def test_research_is_called_once_even_when_it_fails() -> None:
@@ -335,7 +352,7 @@ def test_research_total_time_limit() -> None:
     tool.valves = Tools.Valves.model_construct(
         tabstack_api_key=KEY,
         research_mode="fast",
-        research_timeout_seconds=0.12,  # below the valve minimum, only possible in a test
+        research_timeout_seconds=0.12,  # below the valve minimum; test only
         research_idle_timeout_seconds=120,
     )
     recorder = Recorder()
@@ -352,7 +369,9 @@ def test_research_idle_timeout_from_the_sdk() -> None:
         stream=FakeStream(sdk_events("research_complete.jsonl")[:2], fail_with=stall)
     )
     result = run(make_tool(client).research("q"))
-    assert result.startswith("Error: Tabstack sent nothing for 120 seconds, so the research was")
+    assert result.startswith(
+        "Error: Tabstack sent nothing for 120 seconds, so the research was"
+    )
 
 
 def test_research_unknown_event_names_are_tolerated() -> None:
@@ -375,7 +394,9 @@ def test_research_empty_report() -> None:
     }
     client = FakeClient(stream=FakeStream([EVENT_ADAPTER.validate_python(complete)]))
     result = run(make_tool(client).research("q"))
-    assert result.startswith("Error: the research failed (Tabstack returned an empty answer).")
+    assert result.startswith(
+        "Error: the research failed (Tabstack returned an empty answer)."
+    )
 
 
 def test_research_missing_key_makes_no_call() -> None:
@@ -391,7 +412,9 @@ def test_research_missing_key_makes_no_call() -> None:
 def test_research_empty_question_makes_no_call() -> None:
     client = FakeClient(stream=FakeStream([]))
     result = run(make_tool(client).research("   "))
-    assert result.startswith("Error: Tabstack rejected the request as invalid (the question was")
+    assert result.startswith(
+        "Error: Tabstack rejected the request as invalid (the question was"
+    )
     assert client.created_with == []
 
 
@@ -416,7 +439,9 @@ def test_research_cancellation_is_not_swallowed() -> None:
     recorder = Recorder()
 
     async def scenario() -> None:
-        task = asyncio.create_task(make_tool(client).research("q", __event_emitter__=recorder))
+        task = asyncio.create_task(
+            make_tool(client).research("q", __event_emitter__=recorder)
+        )
         await asyncio.sleep(0.05)
         task.cancel()
         await task
@@ -434,14 +459,22 @@ def test_read_url_success() -> None:
     recorder = Recorder()
     tool = make_tool(client, read_url_max_chars=1000, read_url_effort="max")
     result = run(
-        tool.read_url(" <https://news.example.net/2026/10/release> ", __event_emitter__=recorder)
+        tool.read_url(
+            " <https://news.example.net/2026/10/release> ", __event_emitter__=recorder
+        )
     )
 
     assert client.extract.calls == [
-        {"url": "https://news.example.net/2026/10/release", "metadata": True, "effort": "max"}
+        {
+            "url": "https://news.example.net/2026/10/release",
+            "metadata": True,
+            "effort": "max",
+        }
     ]
     assert client.created_with == [(KEY, 60)]
-    assert result.startswith("Page: Release notes\nURL: https://news.example.net/2026/10/release")
+    assert result.startswith(
+        "Page: Release notes\nURL: https://news.example.net/2026/10/release"
+    )
     assert "[Trimmed: kept the first " in result
     assert recorder.statuses() == [
         ("Reading news.example.net", False),
@@ -490,8 +523,12 @@ def test_read_url_unreadable_page() -> None:
     )
     client = FakeClient(extract_error=error)
     recorder = Recorder()
-    result = run(make_tool(client).read_url("https://example.com/", __event_emitter__=recorder))
-    assert result.startswith("Error: Tabstack could not read that page (failed to fetch URL).")
+    result = run(
+        make_tool(client).read_url("https://example.com/", __event_emitter__=recorder)
+    )
+    assert result.startswith(
+        "Error: Tabstack could not read that page (failed to fetch URL)."
+    )
     assert recorder.statuses()[-1] == ("Could not read the page", True)
     assert len(client.extract.calls) == 1
 
@@ -516,7 +553,9 @@ def test_read_url_missing_key() -> None:
 
 def test_read_url_timeout() -> None:
     client = FakeClient(extract_error=tabstack.APITimeoutError(request=REQUEST))
-    result = run(make_tool(client, read_url_timeout_seconds=15).read_url("https://example.com"))
+    result = run(
+        make_tool(client, read_url_timeout_seconds=15).read_url("https://example.com")
+    )
     assert result.startswith(
         "Error: Tabstack sent nothing for 15 seconds, so the page was stopped."
     )
@@ -527,9 +566,15 @@ def test_read_url_timeout() -> None:
 
 def test_key_never_reaches_the_chat_in_any_scenario() -> None:
     scenarios: list[tuple[FakeClient, str]] = [
-        (FakeClient(stream=FakeStream(sdk_events("research_complete.jsonl"))), "research"),
+        (
+            FakeClient(stream=FakeStream(sdk_events("research_complete.jsonl"))),
+            "research",
+        ),
         (FakeClient(stream=FakeStream(sdk_events("research_error.jsonl"))), "research"),
-        (FakeClient(stream=FakeStream(sdk_events("research_no_terminal.jsonl"))), "research"),
+        (
+            FakeClient(stream=FakeStream(sdk_events("research_no_terminal.jsonl"))),
+            "research",
+        ),
         (FakeClient(research_error=RuntimeError(f"boom {KEY}")), "research"),
         (FakeClient(page=load_json("extract_page.json")), "read_url"),
         (FakeClient(extract_error=ValueError(KEY)), "read_url"),
@@ -540,6 +585,8 @@ def test_key_never_reaches_the_chat_in_any_scenario() -> None:
         if operation == "research":
             result = run(tool.research("q", __event_emitter__=recorder))
         else:
-            result = run(tool.read_url("https://example.com", __event_emitter__=recorder))
+            result = run(
+                tool.read_url("https://example.com", __event_emitter__=recorder)
+            )
         assert KEY not in everything_sent(recorder, result)
         assert client.created_with[0][0] == KEY

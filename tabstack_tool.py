@@ -1,6 +1,6 @@
 """
 title: Tabstack
-description: Tabstack Research for cited answers from live sources, Extract for clean Markdown.
+description: Cited answers from live sources and clean Markdown from URLs, by Tabstack.
 version: 0.1.0
 license: MIT
 requirements: tabstack==2.8.5
@@ -14,7 +14,7 @@ import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Literal
+from typing import Literal, cast
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 import httpx
@@ -39,7 +39,8 @@ Operation = Literal["research", "read_url"]
 def _as_map(value: object) -> Mapping[str, object]:
     """Return value as a string-keyed mapping, or an empty one."""
     if isinstance(value, Mapping):
-        return {str(k): v for k, v in value.items()}  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
+        items = cast(Mapping[object, object], value)
+        return {str(k): v for k, v in items.items()}
     return {}
 
 
@@ -60,7 +61,7 @@ def _as_count(value: object) -> int | None:
 def _as_list(value: object) -> list[object]:
     """Return value as a list, or an empty one."""
     if isinstance(value, list):
-        return list(value)  # pyright: ignore[reportUnknownArgumentType]
+        return list(cast(list[object], value))
     return []
 
 
@@ -96,7 +97,7 @@ class NumberedSource:
 
 @dataclass(frozen=True)
 class Merge:
-    """Record that Tabstack's citation `original` (at `url`) was folded into final source `kept`."""
+    """Record that Tabstack's citation `original` at `url` became source `kept`."""
 
     original: int
     kept: int
@@ -142,7 +143,9 @@ def parse_cited_pages(raw: object) -> tuple[CitedSource, ...]:
         url = _as_str(page.get("url"))
         if url is None:
             continue
-        claims = tuple(c for c in (_as_str(x) for x in _as_list(page.get("claims"))) if c)
+        claims = tuple(
+            c for c in (_as_str(x) for x in _as_list(page.get("claims"))) if c
+        )
         sources.append(
             CitedSource(
                 url=url,
@@ -157,7 +160,7 @@ def parse_cited_pages(raw: object) -> tuple[CitedSource, ...]:
 def dedupe_sources(
     sources: Sequence[CitedSource],
 ) -> tuple[tuple[NumberedSource, ...], dict[int, int], tuple[Merge, ...]]:
-    """Merge URL variants of the same page and return sources, old-to-new numbers and merges."""
+    """Merge URL variants of one page; return sources, old-to-new numbers and merges."""
     groups: dict[str, list[tuple[int, CitedSource]]] = {}
     order: list[str] = []
     for index, source in enumerate(sources, start=1):
@@ -180,7 +183,9 @@ def dedupe_sources(
         claims: list[str] = []
         for _, s in members:
             claims.extend(c for c in s.claims if c not in claims)
-        merged_urls = tuple(dict.fromkeys(s.url for _, s in members if s.url != display_url))
+        merged_urls = tuple(
+            dict.fromkeys(s.url for _, s in members if s.url != display_url)
+        )
         numbered.append(
             NumberedSource(
                 number=new_number,
@@ -202,8 +207,10 @@ _MARKER_RUN = re.compile(r"(?:\[\d+\])+(?!\()")
 _MARKER = re.compile(r"\[(\d+)\]")
 
 
-def renumber_markers(text: str, mapping: Mapping[int, int]) -> tuple[str, tuple[int, ...]]:
-    """Rewrite [n] markers through mapping, drop repeats in a run, and list unknown markers."""
+def renumber_markers(
+    text: str, mapping: Mapping[int, int]
+) -> tuple[str, tuple[int, ...]]:
+    """Rewrite [n] markers through mapping, drop repeats, and list unknown markers."""
     unmatched: list[int] = []
 
     def rewrite_run(match: re.Match[str]) -> str:
@@ -238,7 +245,9 @@ def source_label(source: NumberedSource) -> str:
     return source.title or source.url
 
 
-def format_research_answer(report: str, sources: Sequence[CitedSource]) -> FormattedAnswer:
+def format_research_answer(
+    report: str, sources: Sequence[CitedSource]
+) -> FormattedAnswer:
     """Build the model-facing answer: renumbered report, source list and any notes."""
     numbered, mapping, merges = dedupe_sources(sources)
     body, unmatched = renumber_markers(report.strip(), mapping)
@@ -256,7 +265,9 @@ def format_research_answer(report: str, sources: Sequence[CitedSource]) -> Forma
 
     if merges:
         pairs = "; ".join(f"{m.url} into [{m.kept}]" for m in merges)
-        verb = "was a variant of a page" if len(merges) == 1 else "were variants of pages"
+        verb = (
+            "was a variant of a page" if len(merges) == 1 else "were variants of pages"
+        )
         lines.append("")
         lines.append(
             f"Note: {_plural(len(merges), 'cited address')} {verb} already listed "
@@ -265,12 +276,14 @@ def format_research_answer(report: str, sources: Sequence[CitedSource]) -> Forma
     if unmatched:
         refs = ", ".join(f"[{n}]" for n in unmatched)
         lines.append("")
-        lines.append(f"Note: the answer refers to {refs}, which has no matching source.")
+        lines.append(
+            f"Note: the answer refers to {refs}, which has no matching source."
+        )
 
     lines.append("")
     lines.append(
-        "When you use this answer, keep the [n] markers next to the points they support "
-        "so the user can see the source for each point."
+        "When you use this answer, keep the [n] markers next to the points they "
+        "support so the user can see the source for each point."
     )
     return FormattedAnswer(
         text="\n".join(lines),
@@ -286,9 +299,14 @@ def citation_event(source: NumberedSource) -> dict[str, object]:
     if source.summary:
         parts.append(source.summary)
     if source.claims:
-        parts.append("Claims drawn from this page:\n" + "\n".join(f"- {c}" for c in source.claims))
+        parts.append(
+            "Claims drawn from this page:\n"
+            + "\n".join(f"- {c}" for c in source.claims)
+        )
     if source.merged_urls:
-        parts.append("Also cited as:\n" + "\n".join(f"- {u}" for u in source.merged_urls))
+        parts.append(
+            "Also cited as:\n" + "\n".join(f"- {u}" for u in source.merged_urls)
+        )
     document = "\n\n".join(parts) if parts else "Cited by Tabstack Research."
     label = source_label(source)
     return {
@@ -346,7 +364,7 @@ ResearchOutcome = ResearchCompleted | ResearchFailed | ResearchIncomplete
 
 
 def status_for_event(event: Mapping[str, object]) -> str | None:
-    """Return a status line for a non-terminal Research event, or None to keep the current one."""
+    """Return a status line for a Research event, or None to keep the current one."""
     name = _as_str(event.get("event"))
     data = _as_map(event.get("data"))
     if name in ("start", "planning:start"):
@@ -364,7 +382,11 @@ def status_for_event(event: Mapping[str, object]) -> str | None:
         return f"Found {_plural(found, 'new source')}"
     if name == "prefetching:start":
         count = _as_count(data.get("urlCount"))
-        return f"Fetching {_plural(count, 'linked page')}" if count else "Fetching linked pages"
+        return (
+            f"Fetching {_plural(count, 'linked page')}"
+            if count
+            else "Fetching linked pages"
+        )
     if name == "analyzing:start":
         count = _as_count(data.get("pageCount"))
         return f"Reading {_plural(count, 'page')}" if count else "Reading pages"
@@ -376,7 +398,11 @@ def status_for_event(event: Mapping[str, object]) -> str | None:
     if name == "outlining:start":
         return "Outlining the answer"
     if name == "writing:start":
-        return "Revising the answer" if data.get("isRevision") is True else "Writing the answer"
+        return (
+            "Revising the answer"
+            if data.get("isRevision") is True
+            else "Writing the answer"
+        )
     if name == "judging:start":
         return "Reviewing the draft"
     return None
@@ -435,7 +461,9 @@ class ResearchProgress:
         """Return the terminal outcome, or ResearchIncomplete if none arrived."""
         if self.outcome is not None:
             return self.outcome
-        return ResearchIncomplete(events_seen=self.events_seen, last_event=self.last_event)
+        return ResearchIncomplete(
+            events_seen=self.events_seen, last_event=self.last_event
+        )
 
 
 # -- Markdown trimming --------------------------------------------------------
@@ -476,7 +504,9 @@ def trim_markdown(markdown: str, max_chars: int) -> TrimmedText:
     while "\n" in kept and kept.rsplit("\n", 1)[1].lstrip().startswith("#"):
         kept = kept.rsplit("\n", 1)[0].rstrip()
     rendered = kept
-    fence_lines = sum(1 for line in kept.splitlines() if line.lstrip().startswith("```"))
+    fence_lines = sum(
+        1 for line in kept.splitlines() if line.lstrip().startswith("```")
+    )
     if fence_lines % 2 == 1:
         rendered = kept + "\n```"
     return TrimmedText(text=rendered, kept_chars=len(kept), total_chars=total)
@@ -484,7 +514,9 @@ def trim_markdown(markdown: str, max_chars: int) -> TrimmedText:
 
 def truncation_note(trimmed: TrimmedText) -> str:
     """Return a one-line note saying how much of the page was kept."""
-    percent = trimmed.kept_chars * 100 // trimmed.total_chars if trimmed.total_chars else 0
+    percent = (
+        trimmed.kept_chars * 100 // trimmed.total_chars if trimmed.total_chars else 0
+    )
     return (
         f"[Trimmed: kept the first {trimmed.kept_chars:,} of {trimmed.total_chars:,} "
         f"characters ({percent}%). The rest of the page is not included.]"
@@ -494,7 +526,12 @@ def truncation_note(trimmed: TrimmedText) -> str:
 def format_page(url: str, title: str | None, markdown: str, max_chars: int) -> str:
     """Build the model-facing text for one page read with read_url."""
     trimmed = trim_markdown(markdown, max_chars)
-    lines = [f"Page: {title}" if title else "Page: (no title)", f"URL: {url}", "", trimmed.text]
+    lines = [
+        f"Page: {title}" if title else "Page: (no title)",
+        f"URL: {url}",
+        "",
+        trimmed.text,
+    ]
     if trimmed.trimmed:
         lines.extend(["", truncation_note(trimmed)])
     return "\n".join(lines)
@@ -553,7 +590,9 @@ def redact(text: str, secret: str | None) -> str:
     return text
 
 
-def clean_detail(text: str | None, secret: str | None = None, limit: int = 200) -> str | None:
+def clean_detail(
+    text: str | None, secret: str | None = None, limit: int = 200
+) -> str | None:
     """Collapse a server-supplied detail to one short line with the key removed."""
     if not text:
         return None
@@ -582,13 +621,25 @@ def classify_exception(
     if isinstance(exc, tabstack.RateLimitError):
         return FailureKind.RATE_LIMITED
     if isinstance(exc, tabstack.UnprocessableEntityError):
-        return FailureKind.UNREADABLE_PAGE if operation == "read_url" else FailureKind.BAD_REQUEST
+        return (
+            FailureKind.UNREADABLE_PAGE
+            if operation == "read_url"
+            else FailureKind.BAD_REQUEST
+        )
     if isinstance(exc, tabstack.BadRequestError):
         return FailureKind.BAD_REQUEST
     if isinstance(exc, tabstack.InternalServerError):
-        return FailureKind.UNREADABLE_PAGE if operation == "read_url" else FailureKind.SERVICE_ERROR
+        return (
+            FailureKind.UNREADABLE_PAGE
+            if operation == "read_url"
+            else FailureKind.SERVICE_ERROR
+        )
     if isinstance(exc, tabstack.APIStatusError):
-        return FailureKind.OUT_OF_CREDITS if exc.status_code == 402 else FailureKind.SERVICE_ERROR
+        return (
+            FailureKind.OUT_OF_CREDITS
+            if exc.status_code == 402
+            else FailureKind.SERVICE_ERROR
+        )
     if isinstance(exc, tabstack.APITimeoutError | httpx.TimeoutException):
         # The SDK timeout bounds the wait for each chunk, not the whole call.
         return FailureKind.STALLED
@@ -597,7 +648,9 @@ def classify_exception(
         return FailureKind.TIMEOUT
     if isinstance(exc, tabstack.APIConnectionError | httpx.TransportError):
         # Once events have arrived, a dropped connection means the stream closed early.
-        return FailureKind.STREAM_INCOMPLETE if stream_started else FailureKind.CONNECTION
+        return (
+            FailureKind.STREAM_INCOMPLETE if stream_started else FailureKind.CONNECTION
+        )
     return FailureKind.UNEXPECTED
 
 
@@ -626,13 +679,20 @@ def failure_message(
             "the key in the tool's Valves."
         )
     elif kind is FailureKind.NO_PERMISSION:
-        text = f"Error: the Tabstack API key is not allowed to make this request{suffix}."
+        text = (
+            f"Error: the Tabstack API key is not allowed to make this request{suffix}."
+        )
     elif kind is FailureKind.OUT_OF_CREDITS:
-        text = "Error: Tabstack declined the request because the account is out of credits."
+        text = (
+            "Error: Tabstack declined the request because the account is out of "
+            "credits."
+        )
     elif kind is FailureKind.RATE_LIMITED:
         text = "Error: Tabstack is rate limiting this account. Try again in a minute."
     elif kind is FailureKind.TIMEOUT:
-        limit = f" within {timeout_seconds:g} seconds" if timeout_seconds else " in time"
+        limit = (
+            f" within {timeout_seconds:g} seconds" if timeout_seconds else " in time"
+        )
         hint = (
             " Try a narrower question, or ask an admin to raise the time limit."
             if operation == "research"
@@ -643,7 +703,10 @@ def failure_message(
         gap = f"for {idle_seconds:g} seconds" if idle_seconds else "for too long"
         text = f"Error: Tabstack sent nothing {gap}, so {what} was stopped."
     elif kind is FailureKind.CONNECTION:
-        text = "Error: could not reach Tabstack. Check the Open WebUI server's internet connection."
+        text = (
+            "Error: could not reach Tabstack. Check the Open WebUI server's internet "
+            "connection."
+        )
     elif kind is FailureKind.SERVICE_ERROR:
         text = f"Error: Tabstack returned a server error{suffix}."
     elif kind is FailureKind.BAD_REQUEST:
@@ -658,7 +721,9 @@ def failure_message(
     elif kind is FailureKind.UNREADABLE_PAGE:
         text = f"Error: Tabstack could not read that page{suffix}."
     elif kind is FailureKind.INVALID_URL:
-        text = f"Error: read_url only accepts http and https addresses. {detail or ''}".rstrip()
+        text = "Error: read_url only accepts http and https addresses."
+        if detail:
+            text = f"{text} {detail}"
     else:
         text = f"Error: the Tabstack tool hit an unexpected problem{suffix}."
     return text + _RELAY
@@ -670,7 +735,11 @@ def research_failure_message(outcome: ResearchFailed | ResearchIncomplete) -> st
         return failure_message(FailureKind.STREAM_INCOMPLETE, "research")
     detail = clean_detail(outcome.message)
     if outcome.activity:
-        detail = f"during {outcome.activity}: {detail}" if detail else f"during {outcome.activity}"
+        detail = (
+            f"during {outcome.activity}: {detail}"
+            if detail
+            else f"during {outcome.activity}"
+        )
     return failure_message(FailureKind.STREAM_ERROR, "research", detail=detail)
 
 
@@ -683,7 +752,7 @@ def exception_message(
     timeout_seconds: float | None = None,
     idle_seconds: float | None = None,
 ) -> str:
-    """Return the chat message for an exception, with any server detail cleaned and redacted."""
+    """Return the chat message for an exception, with server detail redacted."""
     kind = classify_exception(exc, operation, stream_started=stream_started)
     if kind is FailureKind.UNEXPECTED:
         # Only the class name: an arbitrary exception message could carry anything.
@@ -727,7 +796,7 @@ def _event_dict(event: object) -> Mapping[str, object]:
 
 
 class _Status:
-    """Send status and citation events to the chat, ignoring a missing or broken emitter."""
+    """Send status and citation events; tolerate a missing or broken emitter."""
 
     def __init__(self, emit: EventEmitter | None) -> None:
         """Wrap the emitter Open WebUI injected, which may be None."""
@@ -742,11 +811,15 @@ class _Status:
 
     async def update(self, description: str) -> None:
         """Show an in-progress status line."""
-        await self.send({"type": "status", "data": {"description": description, "done": False}})
+        await self.send(
+            {"type": "status", "data": {"description": description, "done": False}}
+        )
 
     async def done(self, description: str) -> None:
         """Show the final status line, replacing the in-progress one."""
-        await self.send({"type": "status", "data": {"description": description, "done": True}})
+        await self.send(
+            {"type": "status", "data": {"description": description, "done": True}}
+        )
 
 
 class Tools:
@@ -757,24 +830,24 @@ class Tools:
 
         tabstack_api_key: str = Field(
             default="",
-            description="Your Tabstack API key. Stored by Open WebUI; never shown in chat.",
+            description="Your Tabstack API key. Never shown in chat.",
             json_schema_extra={"input": {"type": "password"}},
         )
         research_mode: Literal["fast", "balanced"] = Field(
             default="fast",
-            description="Research depth. 'balanced' reads more sources and needs a paid plan.",
+            description="'balanced' reads more sources and needs a paid plan.",
         )
         research_timeout_seconds: int = Field(
             default=300,
             ge=10,
             le=3600,
-            description="Stop a Research call that has not finished after this many seconds.",
+            description="Stop a Research call that runs longer than this, in seconds.",
         )
         research_idle_timeout_seconds: int = Field(
             default=120,
             ge=10,
             le=900,
-            description="Stop a Research call if Tabstack sends nothing for this many seconds.",
+            description="Stop a Research call after this many silent seconds.",
         )
         read_url_timeout_seconds: int = Field(
             default=60,
@@ -784,7 +857,7 @@ class Tools:
         )
         read_url_effort: Literal["min", "standard", "max"] = Field(
             default="standard",
-            description="Fetch effort. 'max' renders JavaScript-heavy pages but is slower.",
+            description="'max' renders JavaScript-heavy pages but is slower.",
         )
         read_url_max_chars: int = Field(
             default=20000,
@@ -794,7 +867,7 @@ class Tools:
         )
 
     def __init__(self) -> None:
-        """Set up valves; Open WebUI replaces them with the saved values on each call."""
+        """Set up valves; Open WebUI swaps in the saved values on each call."""
         self.valves = self.Valves()
         # Seam for tests. Underscore names are not exposed to the model.
         self._client_factory: ClientFactory = _default_client
@@ -831,8 +904,13 @@ class Tools:
         progress = ResearchProgress()
         await status.update("Starting research")
         try:
-            async with asyncio.timeout(total), self._client_factory(key, idle) as client:
-                stream = await client.agent.research(query=query, mode=valves.research_mode)
+            async with (
+                asyncio.timeout(total),
+                self._client_factory(key, idle) as client,
+            ):
+                stream = await client.agent.research(
+                    query=query, mode=valves.research_mode
+                )
                 async with stream:
                     async for event in stream:
                         line = progress.feed(_event_dict(event))
@@ -861,7 +939,9 @@ class Tools:
         if not outcome.report:
             await status.done(failed_status("research"))
             return failure_message(
-                FailureKind.STREAM_ERROR, "research", detail="Tabstack returned an empty answer"
+                FailureKind.STREAM_ERROR,
+                "research",
+                detail="Tabstack returned an empty answer",
             )
 
         answer = format_research_answer(outcome.report, outcome.sources)
@@ -897,7 +977,10 @@ class Tools:
         limit = valves.read_url_timeout_seconds
         await status.update(f"Reading {host}")
         try:
-            async with asyncio.timeout(limit), self._client_factory(key, limit) as client:
+            async with (
+                asyncio.timeout(limit),
+                self._client_factory(key, limit) as client,
+            ):
                 page = await client.extract.markdown(
                     url=target, metadata=True, effort=valves.read_url_effort
                 )
@@ -913,13 +996,17 @@ class Tools:
         if not page.content.strip():
             await status.done(failed_status("read_url"))
             return failure_message(
-                FailureKind.UNREADABLE_PAGE, "read_url", detail="the page had no readable text"
+                FailureKind.UNREADABLE_PAGE,
+                "read_url",
+                detail="the page had no readable text",
             )
         title = _as_str(page.metadata.title) if page.metadata else None
         page_url = _as_str(page.url) or target
         max_chars = valves.read_url_max_chars
         await status.send(
-            page_citation_event(page_url, title, trim_markdown(page.content, max_chars).text)
+            page_citation_event(
+                page_url, title, trim_markdown(page.content, max_chars).text
+            )
         )
         await status.done(f"Read {host}")
         return format_page(page_url, title, page.content, max_chars)

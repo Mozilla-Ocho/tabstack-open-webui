@@ -9,7 +9,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SCANNED_FOR_KEYS = [ROOT / "tests" / "fixtures", ROOT / "docs"]
 TEXT_SUFFIXES = {".py", ".md", ".json", ".jsonl", ".toml", ".yml", ".yaml", ".txt", ""}
-SKIP_DIRS = {".venv", ".git", ".pytest_cache", ".ruff_cache", "__pycache__", "screenshots"}
+SKIP_DIRS = {
+    ".venv",
+    ".git",
+    ".pytest_cache",
+    ".ruff_cache",
+    "__pycache__",
+    "screenshots",
+}
 
 # The format of a Tabstack key is not documented, so these patterns are generic:
 # an assignment to TABSTACK_API_KEY, a bearer token, or a long unbroken run of
@@ -40,7 +47,9 @@ def repo_text_files() -> list[Path]:
     return [
         p
         for p in files_under([ROOT])
-        if p.suffix in TEXT_SUFFIXES and p.name != "uv.lock" and p.name != ".python-version"
+        if p.suffix in TEXT_SUFFIXES
+        and p.name != "uv.lock"
+        and p.name != ".python-version"
     ]
 
 
@@ -74,7 +83,9 @@ def test_env_file_is_ignored() -> None:
 def test_repo_text_is_plain_ascii() -> None:
     offenders: list[str] = []
     for path in repo_text_files():
-        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        for number, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        ):
             if not line.isascii():
                 offenders.append(f"{path.relative_to(ROOT)}:{number}")
     assert offenders == []
@@ -88,5 +99,16 @@ def test_key_patterns_catch_planted_samples() -> None:
     ]
     for sample in planted:
         assert any(p.search(sample) for p in KEY_PATTERNS), sample
-    for innocent in ["ENABLE_PIP_INSTALL_FRONTMATTER_REQUIREMENTS", "https://example.com/a/b"]:
+    for innocent in [
+        "ENABLE_PIP_INSTALL_FRONTMATTER_REQUIREMENTS",
+        "https://example.com/a/b",
+    ]:
         assert not any(p.search(innocent) for p in KEY_PATTERNS), innocent
+
+
+def test_tool_file_survives_open_webui_formatting() -> None:
+    # Open WebUI runs black with its default mode on tool code before saving.
+    import black
+
+    source = (ROOT / "tabstack_tool.py").read_text(encoding="utf-8")
+    assert black.format_str(source, mode=black.Mode()) == source

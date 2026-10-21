@@ -108,6 +108,22 @@ Paths below are relative to those checkouts: `sdk/` is the unpacked wheel
 - Open WebUI rewrites the import prefixes `from utils`, `from apps`, `from main`
   and `from config` in saved source. The tool must not use those prefixes.
   Docs, same section; source `utils/plugin.py`, `replace_imports`.
+- CONFIRMED in a live install on 2026-10-21 (see `EVIDENCE.md`, section 1):
+  saving the tool ran `pip install tabstack==2.8.5` and every other SDK
+  dependency was already satisfied by the image.
+
+### 1.4a Code is reformatted on save - CONFIRMED (live and source)
+
+- The tool editor sends the code to `POST /api/v1/utils/code/format` before
+  saving, which runs `black.format_str(code, mode=black.Mode())`
+  (`owui/backend/open_webui/routers/utils.py`, `format_code`). The image has
+  black 26.5.1 (`owui/backend/requirements.txt`).
+- Seen live: the first paste was stored rewrapped at 88 columns. The file now
+  keeps to black's style and `tests/test_secrets.py` checks it, so the stored
+  copy is byte-identical to the file.
+- Name, ID and description are filled from the frontmatter only when a tool
+  is created; editing an existing tool does not refresh them (docs,
+  `tools/development.mdx`, "Metadata auto-fill"; seen live).
 
 ### 1.5 Runtime Python - CONFIRMED (source)
 
@@ -116,8 +132,10 @@ Paths below are relative to those checkouts: `sdk/` is the unpacked wheel
   3.11, not 3.12.
 - Open WebUI pins `pydantic==2.13.4` and `httpx==0.28.1`
   (`owui/backend/requirements.txt`). Tabstack 2.8.5 requires `pydantic<3,>=1.9.0`
-  and `httpx<1,>=0.23.0` (wheel `METADATA`), so they are compatible on paper.
-  Not yet installed together; Phase 4 will confirm.
+  and `httpx<1,>=0.23.0` (wheel `METADATA`). CONFIRMED compatible in a live
+  install on 2026-10-21: the SDK installed without changing any package, and
+  the tool ran inside the container on Python 3.11.17 (`EVIDENCE.md`,
+  section 2).
 
 ### 1.6 Status updates - CONFIRMED (docs and source)
 

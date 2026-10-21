@@ -12,6 +12,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "black==26.5.1",
     "pytest==9.1.1",
     "ruff==0.17.1",
     "pyright==1.1.414",
@@ -21,7 +22,9 @@ dev = [
 package = false
 
 [tool.ruff]
-line-length = 100
+# Open WebUI runs black (default 88 columns) on tool code when it is saved, so
+# keeping to black style means the pasted file is stored unchanged.
+line-length = 88
 # Open WebUI runs tools on Python 3.11, so the pasted file must parse there.
 target-version = "py311"
 

@@ -96,7 +96,10 @@ def test_dedupe_merges_variants_and_records_it() -> None:
 
 
 def test_dedupe_without_duplicates_is_identity() -> None:
-    sources = [CitedSource(url="https://example.com/1"), CitedSource(url="https://example.com/2")]
+    sources = [
+        CitedSource(url="https://example.com/1"),
+        CitedSource(url="https://example.com/2"),
+    ]
     numbered, mapping, merges = dedupe_sources(sources)
     assert mapping == {1: 1, 2: 2}
     assert merges == ()
@@ -160,8 +163,12 @@ def test_answer_with_no_sources_says_so() -> None:
 
 
 def test_answer_notes_unmatched_marker() -> None:
-    answer = format_research_answer("Claim [2].", [CitedSource(url="https://example.com")])
-    assert "Note: the answer refers to [2], which has no matching source." in answer.text
+    answer = format_research_answer(
+        "Claim [2].", [CitedSource(url="https://example.com")]
+    )
+    assert (
+        "Note: the answer refers to [2], which has no matching source." in answer.text
+    )
 
 
 # -- citation events ----------------------------------------------------------
@@ -177,7 +184,10 @@ def test_citation_event_shape_matches_open_webui() -> None:
     assert data["metadata"] == [
         {"source": "https://www.example.com/docs/tools", "name": "Tools overview"}
     ]
-    assert data["source"] == {"name": "Tools overview", "url": "https://www.example.com/docs/tools"}
+    assert data["source"] == {
+        "name": "Tools overview",
+        "url": "https://www.example.com/docs/tools",
+    }
     assert data["document"] == [
         "Also cited as:\n- http://example.com/docs/tools/",
     ]
@@ -187,14 +197,19 @@ def test_citation_event_falls_back_to_url_label() -> None:
     numbered, _, _ = dedupe_sources([CitedSource(url="https://example.com/x")])
     data = citation_event(numbered[0])["data"]
     assert isinstance(data, dict)
-    assert data["source"] == {"name": "https://example.com/x", "url": "https://example.com/x"}
+    assert data["source"] == {
+        "name": "https://example.com/x",
+        "url": "https://example.com/x",
+    }
     assert data["document"] == ["Cited by Tabstack Research."]
 
 
 def test_page_citation_event() -> None:
     data = page_citation_event("https://example.com", None, "text")["data"]
     assert isinstance(data, dict)
-    assert data["metadata"] == [{"source": "https://example.com", "name": "https://example.com"}]
+    assert data["metadata"] == [
+        {"source": "https://example.com", "name": "https://example.com"}
+    ]
 
 
 # -- trimming -----------------------------------------------------------------
@@ -207,7 +222,7 @@ def test_short_markdown_is_untouched() -> None:
 
 
 def test_trim_prefers_paragraph_break() -> None:
-    text = "First paragraph here.\n\nSecond paragraph that is longer than the limit allows."
+    text = "First paragraph here.\n\nSecond paragraph, longer than the limit allows."
     trimmed = trim_markdown(text, 40)
     assert trimmed.text == "First paragraph here."
     assert trimmed.kept_chars == 21
@@ -252,8 +267,12 @@ def test_format_page_from_fixture() -> None:
     page = load_json("extract_page.json")
     content = page["content"]
     assert isinstance(content, str)
-    text = format_page("https://news.example.net/2026/10/release", "Release notes", content, 500)
-    assert text.startswith("Page: Release notes\nURL: https://news.example.net/2026/10/release\n\n")
+    text = format_page(
+        "https://news.example.net/2026/10/release", "Release notes", content, 500
+    )
+    assert text.startswith(
+        "Page: Release notes\nURL: https://news.example.net/2026/10/release\n\n"
+    )
     assert "[Trimmed: kept the first " in text
     untrimmed = format_page("https://example.com", None, content, 100_000)
     assert untrimmed.startswith("Page: (no title)")

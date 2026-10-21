@@ -1,0 +1,28 @@
+# Ollama plus Open WebUI for manual testing of tabstack_tool.py.
+# Not a dependency of the tool. Open WebUI is served on http://localhost:3000.
+#
+# On macOS, Ollama in a container runs on the CPU only (no Metal), so replies
+# from a local model are slower than with Ollama installed natively.
+
+services:
+  ollama:
+    image: ollama/ollama:0.40.7
+    volumes:
+      - ollama:/root/.ollama
+    restart: unless-stopped
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:v0.12.3
+    depends_on:
+      - ollama
+    ports:
+      - "3000:8080"
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+    volumes:
+      - open-webui:/app/backend/data
+    restart: unless-stopped
+
+volumes:
+  ollama:
+  open-webui:

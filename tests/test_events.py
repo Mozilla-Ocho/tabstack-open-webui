@@ -29,19 +29,31 @@ def run(name: str) -> tuple[ResearchProgress, list[str]]:
         ({"event": "start", "data": {}}, "Planning searches"),
         ({"event": "planning:start", "data": {}}, "Planning searches"),
         (
-            {"event": "iteration:start", "data": {"iteration": 2.0, "maxIterations": 3.0}},
+            {
+                "event": "iteration:start",
+                "data": {"iteration": 2.0, "maxIterations": 3.0},
+            },
             "Searching, round 2 of 3",
         ),
         ({"event": "iteration:start", "data": {}}, "Searching"),
         ({"event": "searching:end", "data": {"urlsNew": 1.0}}, "Found 1 new source"),
         ({"event": "searching:end", "data": {"urlsNew": 18.0}}, "Found 18 new sources"),
-        ({"event": "prefetching:start", "data": {"urlCount": 2.0}}, "Fetching 2 linked pages"),
+        (
+            {"event": "prefetching:start", "data": {"urlCount": 2.0}},
+            "Fetching 2 linked pages",
+        ),
         ({"event": "analyzing:start", "data": {"pageCount": 20.0}}, "Reading 20 pages"),
         ({"event": "following:start", "data": {"linkCount": 1.0}}, "Following 1 link"),
         ({"event": "evaluating:start", "data": {}}, "Checking what is still missing"),
         ({"event": "outlining:start", "data": {}}, "Outlining the answer"),
-        ({"event": "writing:start", "data": {"isRevision": False}}, "Writing the answer"),
-        ({"event": "writing:start", "data": {"isRevision": True}}, "Revising the answer"),
+        (
+            {"event": "writing:start", "data": {"isRevision": False}},
+            "Writing the answer",
+        ),
+        (
+            {"event": "writing:start", "data": {"isRevision": True}},
+            "Revising the answer",
+        ),
         ({"event": "judging:start", "data": {}}, "Reviewing the draft"),
     ],
 )
@@ -82,7 +94,9 @@ def test_error_fixture() -> None:
     progress, statuses = run("research_error.jsonl")
     assert statuses == ["Planning searches", "Searching, round 1 of 1"]
     outcome = progress.result()
-    assert outcome == ResearchFailed(message="All search providers failed", activity="searching")
+    assert outcome == ResearchFailed(
+        message="All search providers failed", activity="searching"
+    )
     assert isinstance(outcome, ResearchFailed)
     message = research_failure_message(outcome)
     assert message.startswith(
@@ -105,7 +119,11 @@ def test_no_terminal_fixture() -> None:
 
 def test_three_fixtures_give_three_different_results() -> None:
     texts: list[str] = []
-    for name in ("research_complete.jsonl", "research_error.jsonl", "research_no_terminal.jsonl"):
+    for name in (
+        "research_complete.jsonl",
+        "research_error.jsonl",
+        "research_no_terminal.jsonl",
+    ):
         outcome = run(name)[0].result()
         if isinstance(outcome, ResearchCompleted):
             texts.append(format_research_answer(outcome.report, outcome.sources).text)
@@ -119,7 +137,9 @@ def test_three_fixtures_give_three_different_results() -> None:
 
 def test_error_event_with_unpopulated_error_field() -> None:
     progress = ResearchProgress()
-    progress.feed({"event": "error", "data": {"message": "Research failed", "error": None}})
+    progress.feed(
+        {"event": "error", "data": {"message": "Research failed", "error": None}}
+    )
     outcome = progress.result()
     assert outcome == ResearchFailed(message="Research failed", activity=None)
     assert isinstance(outcome, ResearchFailed)
