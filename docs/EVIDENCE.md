@@ -4,11 +4,12 @@ What was actually run, when, and what happened. Nothing here is estimated.
 
 ## Status
 
-Phase 4 is partly done. Sections 1 to 6 were run before the Tabstack account
-had credits (empty key or a deliberately fake key). Section 7 covers the first
-runs with a working key, later on 2026-10-21. Those runs were **stopped part
-way** after the model started calling Research repeatedly; three of the five
-research questions completed and none of the `read_url` calls were run.
+Sections 1 to 6 were run before the Tabstack account had credits (empty key
+or a deliberately fake key). Section 7 covers the first runs with a working
+key, which were **stopped part way** after the model started calling Research
+repeatedly. Section 8 covers the re-run after the tool was changed to cap
+calls per reply. Between them, all five research questions and three
+`read_url` calls have an outcome with a working key.
 
 ## Environment
 
@@ -321,10 +322,63 @@ docs `reference/env-configuration.mdx`). Nothing else in Open WebUI or in the
 tool stopped R4. The tool adds no retries, but it also did nothing to stop the
 model calling it again after a successful answer.
 
-## 8. Still to do
+## 8. Re-run with per-reply call caps
 
-- Five research questions and three `read_url` calls with a working key, with
-  outcomes as they happen.
-- Screenshots of live status updates and of a cited answer with source chips.
-- A recorded Research stream to sit beside the hand-built fixtures.
-- Usage, if the API reports it (`metadata.metrics`); no cost will be estimated.
+Changes made after section 7, all in the repo:
+
+- The tool counts calls per reply, keyed on the `__message_id__` Open WebUI
+  passes it, and refuses calls beyond `max_research_calls_per_reply`
+  (default 1) or `max_read_url_calls_per_reply` (default 3) without
+  contacting Tabstack.
+- Successful results end with "This is the complete answer from Tabstack.
+  Answer the user from it now ... Do not call research again for this
+  question." (and a matching line for `read_url`).
+- `docker-compose.yml` sets `CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS=3`. The
+  container was recreated with it (`printenv` inside showed `3`). Recreating
+  it signed the browser session out, because the image keeps its generated
+  secret key outside the data volume.
+- Source titles lose decorative punctuation.
+
+Same setup as section 7.2 otherwise (`llama3.1:8b`, Builtin Tools off, real
+key set through the Valves dialog from the environment). A watchdog script
+polled the chats and would have cleared the key if any reply got more
+successful calls than the caps allow; it did not trigger. The key was cleared
+from the valve straight after the runs.
+
+| Run | Prompt | Calls | Statuses | What the model did | Time to done |
+| --- | --- | --- | --- | --- | --- |
+| L2 | What did the Python Software Foundation announce this week? | `research` x1 | Starting research ... Research finished, 4 sources | Answered from the result (the wiki relaunch on 20 October 2026 and the Q3 2026 Fellows on 19 October 2026). Kept markers `[1]` and `[4]`, dropped `[2]` and `[3]`, and repeated only sources 1 and 4 at the end. | 32.0 s |
+| L4 | Which UK bank holidays are left in 2026 in England? | `research` x1 | ... Research finished, 6 sources | Answered from the result as two bullet points (Christmas Day, 25 December, and the Boxing Day substitute day, 28 December 2026) with all markers kept; they rendered as source chips. (`screenshots/live-L4-status.png`, `screenshots/live-L4-cited-answer.png`) | 21.4 s |
+| L5 | Who won the most recent Formula 1 Grand Prix? | `research` x1 | ... Research finished, 7 sources | Answered from the result (Max Verstappen, Singapore Grand Prix, 11 October 2026). Cut the first sentence's markers from `[1]`..`[7]` to `[1]`. | 23.5 s |
+| U1 | Summarise this page for me: https://docs.python.org/3/whatsnew/3.14.html | `read_url` x1 | Reading docs.python.org, Read docs.python.org | The page was 148,117 characters; the tool passed the first 19,777 with the truncation note. The model wrote its summary as answers to four questions nobody asked ("Based on the provided text, I'll answer your questions."), using points from the passed text. (`screenshots/live-U1-read-url.png`) | 34.7 s |
+| U2 | What does this page say about tools? https://docs.openwebui.com/features/extensibility/plugin/tools/ | `read_url` x1 | Reading docs.openwebui.com, Read docs.openwebui.com | The tool passed the first 19,860 of 84,240 characters. The model answered as if asked how to enable Native mode, which is what the last section of the passed text covers, rather than summarising what the page says about tools. | 54.5 s |
+| U3 | Can you read https://www.gov.uk/bank-holidays and list the next three dates? | `read_url` x1 | Reading www.gov.uk, Read www.gov.uk | **Wrong dates.** In the Markdown Tabstack returned, the bank holiday tables run their cells together ("DateDay of the weekBank holidayFridayChristmas DayMondayBoxing Day (substitute day)") with the date column missing; only "25 December" appears, in a heading. The model listed "25 December 2023", "26 December 2023" and "6 January 2024"; the last two dates do not appear in the text it was given, and 2023 and 2024 appear only as headings for past years. (`screenshots/live-U3-read-url-table.png`) | 61.6 s |
+
+Every run made exactly one billed call, against 4, 24 and 2 calls for the same
+three research questions in section 7. The caps were not reached in these
+runs, so the refusal path has been exercised by the tests only, not live.
+
+Calls made with the working key in this section: 3 Research, 3 Extract.
+Running totals for 2026-10-21: **36 Research calls and 4 Extract calls**. The
+API reported no usage for any of them (the tool does not receive `metrics`
+in fast mode).
+
+What these runs show, for this model and these prompts only:
+
+- With the caps and the end-of-answer instruction, the model answered from
+  the first result each time instead of calling again.
+- Citation markers survive inconsistently: one reply kept them all, two kept
+  some, and in section 7 one reply moved them.
+- A long page is trimmed to the first 20,000 characters, and the model can
+  end up answering from whatever part of the page that leaves it with (U2).
+- When the extracted Markdown loses information, here a table's date column,
+  the model may fill the gap with invented dates (U3). The tool passes on
+  what Tabstack returns and cannot detect this.
+
+## 9. Not done
+
+- The per-reply refusal has not been seen live, only in tests, because the
+  model did not try a second call in section 8.
+- Only `llama3.1:8b` was run with a working key; `qwen3:8b` was run without
+  one (section 5).
+- The `bundled` profile was not used for any run after section 4.

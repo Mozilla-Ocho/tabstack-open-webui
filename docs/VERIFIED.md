@@ -197,6 +197,11 @@ Paths below are relative to those checkouts: `sdk/` is the unpacked wheel
   `reference/env-configuration.mdx`). Each turn counts once however many tool
   calls it contains.
 
+- Seen live on 2026-10-21: recreating the container to add that variable
+  signed the session out. `owui/backend/start.sh` writes a generated
+  `WEBUI_SECRET_KEY` to `.webui_secret_key` in the working directory
+  (`/app/backend`), not in the data volume, when the variable is unset.
+
 ### 1.8 Competing built-in web tools - CONFIRMED (source)
 
 - Open WebUI adds its own `search_web` and `fetch_url` built-in tools in Native

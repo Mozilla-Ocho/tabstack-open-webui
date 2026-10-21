@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import re
+import unicodedata
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
@@ -92,9 +93,17 @@ _DECORATIVE = str.maketrans(
 )
 
 
+_INVISIBLE = {"\u200d", "\ufe0f", "\ufe0e"}  # joiner and emoji variation selectors
+
+
 def plain_punctuation(text: str) -> str:
-    """Replace decorative punctuation (dashes, curly quotes, arrows) with ASCII."""
-    return " ".join(text.translate(_DECORATIVE).split())
+    """Make decorative punctuation ASCII and drop emoji and other symbols."""
+    kept = (
+        ch
+        for ch in text.translate(_DECORATIVE)
+        if ch not in _INVISIBLE and unicodedata.category(ch) != "So"
+    )
+    return " ".join("".join(kept).split())
 
 
 # -- Citations ----------------------------------------------------------------

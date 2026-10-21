@@ -97,6 +97,13 @@ With Docker Compose, add it under the Open WebUI service's `environment:`
 and run `docker compose up -d` again. It is read only at start-up and cannot
 be changed in the admin panel. It applies to every tool, not just this one.
 
+Changing an environment variable recreates the container. Unless
+`WEBUI_SECRET_KEY` is set, the official image generates a new secret key
+inside the container when that happens (it is not kept in the data volume),
+so everyone is signed out and has to sign in again. If you have turned on
+`ENABLE_VALVE_ENCRYPTION`, set a fixed `WEBUI_SECRET_KEY` first, or saved
+valves, including the Tabstack key, can no longer be read.
+
 ## 4. Turn the tool on for a model
 
 **For every chat with a model (recommended):**
@@ -121,17 +128,20 @@ button (next to **+**), open **Tools**, and switch **Tabstack** on.
 
 ## 5. Check that it works
 
-> Pending: this step has not yet been run with a working key. It will be
-> checked against a live run before this guide is published.
-
 1. Start a new chat with the model from step 4.
 2. Ask something that needs current information, for example "What is the
    latest stable release of Node.js, and when did it come out?"
-3. While Research runs, status lines appear above the reply, starting with
-   **Starting research** and **Planning searches**, and ending with
-   **Research finished, N sources**.
-4. The reply should contain numbered markers such as `[1]`, shown as source
-   chips, with the sources listed under the message.
+3. While Research runs, status lines appear above the reply: **Starting
+   research**, **Planning searches**, **Searching, round 1 of 1**, **Found N
+   new sources**, **Writing the answer**, and finally **Research finished, N
+   sources**. In testing, replies that made one Research call were done
+   between about 20 seconds and just over 2 minutes after sending.
+4. The reply should contain the answer with source chips next to the points,
+   and an **N Sources** button under it that lists the pages. Whether the
+   chips appear depends on the model copying the `[n]` markers; some replies
+   in testing kept only some of them.
+
+![A cited answer with source chips](screenshots/live-L4-cited-answer.png)
 5. To check `read_url`, paste a link and ask for a summary, for example
    "Summarise this page for me: https://docs.python.org/3/whatsnew/3.14.html".
    The status shows **Reading docs.python.org**, then **Read docs.python.org**.
@@ -153,8 +163,8 @@ message box when tools are on for the chat. If it is missing, repeat step 4.
 offers the model about 36 tools of its own (memory, notes, knowledge bases,
 chat search, calendar, automations and more) alongside this one. In testing,
 `llama3.1:8b` and `qwen3:8b` did not call the Tabstack tool in any of four
-runs while those were on, and called it in all thirteen runs once they were
-off (see [EVIDENCE.md](EVIDENCE.md), sections 5 and 6). That is a small
+runs while those were on, and called it in all 24 runs once they were off
+(see [EVIDENCE.md](EVIDENCE.md), sections 5 to 8). That is a small
 number of runs on two models, not a guarantee. To switch them off for one
 model:
 
@@ -179,6 +189,16 @@ research tool to find ...") can help. If it still never calls the tool, try a
 model with stronger tool-calling support.
 
 ## Other problems
+
+**Long pages are trimmed.** `read_url` passes the first 20,000 characters
+(the **Read Url Max Chars** setting) and tells the model how much it kept.
+The model only sees that part, so a question about something further down
+the page may get an answer about whatever the first part covers.
+
+**Check the facts that matter.** The tool passes on what Tabstack returns.
+In testing, a page whose table came through without its date column led the
+model to invent dates. The red-cross or green-tick **View Result** line in the
+chat shows exactly what the tool returned.
 
 **The model passes on the error badly, or adds things of its own.** Error
 messages ask the model to repeat them word for word and not to call the tool

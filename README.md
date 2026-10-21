@@ -80,15 +80,19 @@ valves.
 - **Whether the model calls the tool is up to the model.** In the runs in
   [docs/EVIDENCE.md](docs/EVIDENCE.md), `llama3.1:8b` and `qwen3:8b` did not
   call it in any of four runs while Open WebUI's built-in tools were on (36
-  extra tools offered alongside this one), and called it in all thirteen runs
-  once the model's Builtin Tools capability was switched off. That is a small
+  extra tools offered alongside this one), and called it in all 24 runs once
+  the model's Builtin Tools capability was switched off. That is a small
   number of runs on two models, not a rate.
 - **Citation numbers are per message.** Open WebUI numbers sources in the
   order they arrive on a message. If the model calls `research` twice in one
   reply, or another tool adds sources first, the `[n]` chips for the second
   call point at the wrong sources.
 - The model has to copy the `[n]` markers into its reply for the citation
-  chips to appear.
+  chips to appear. In testing, some replies kept only some of them.
+- `read_url` passes the first 20,000 characters of a page by default, so the
+  model only sees that part. The tool passes on what Tabstack returns; in
+  testing, a table that came through without its date column led the model to
+  invent dates.
 
 ## Data handling
 

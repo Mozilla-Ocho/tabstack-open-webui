@@ -332,6 +332,12 @@ def test_plain_punctuation() -> None:
         plain_punctuation(title) == 'Node.js - Node.js Releases - About Python "x"...'
     )
     assert plain_punctuation("Caf\u00e9") == "Caf\u00e9"  # letters are left alone
+    assert (
+        plain_punctuation("Fellows for Q3 2026! \U0001f389") == "Fellows for Q3 2026!"
+    )
+    assert plain_punctuation("\u3010\u6b63\u5f0f\u7d50\u679c\u3011") == (
+        "\u3010\u6b63\u5f0f\u7d50\u679c\u3011"
+    )  # CJK text and brackets stay
 
 
 def test_cited_page_titles_are_made_plain() -> None:
