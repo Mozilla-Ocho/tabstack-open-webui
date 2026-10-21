@@ -37,6 +37,8 @@ the Open WebUI image yourself.
 | `research_idle_timeout_seconds` | 120 | Stops a Research call if Tabstack sends nothing for this long. |
 | `read_url_timeout_seconds` | 60 | Stops reading a page after this long. |
 | `read_url_effort` | `standard` | `max` renders JavaScript-heavy pages but is slower. |
+| `max_research_calls_per_reply` | 1 | Research calls allowed in one reply. Later calls are refused without contacting Tabstack. |
+| `max_read_url_calls_per_reply` | 3 | The same for `read_url`. |
 | `read_url_max_chars` | 20000 | Longest page text passed to the model. |
 
 Open WebUI stores valve values in its database as plain text unless the admin
@@ -48,8 +50,14 @@ valves.
 - **No retries are added.** The SDK's own default stays in place: two retries
   on 408, 409, 429, 5xx and connection failures, before a Research stream
   opens. The tool never re-runs a call itself, because repeating a Research
-  call repeats the work and the billing. A model may still decide to call the
-  tool again after an error; see the evidence.
+  call repeats the work and the billing.
+- **Repeated calls from the model are capped.** In testing, a model called
+  `research` 24 times in one reply after getting good answers. The tool now
+  counts calls per reply (using the message id Open WebUI passes it) and
+  refuses any beyond the valve limit, without contacting Tabstack. Successful
+  results also end with an instruction to answer from them and not call
+  again. The count is kept in memory per Open WebUI worker. Also set
+  `CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS` (see the install guide).
 - **Failures come back as plain messages** starting `Error:`, such as a
   missing or rejected key, a timeout, a stream that ended with an error, a
   stream that closed early, or a page Tabstack could not read. Each is one
@@ -58,6 +66,9 @@ valves.
   chat, and the key is never echoed.
 - **`read_url` only accepts `http` and `https` URLs** and says why when it
   refuses one.
+- **Page titles are cleaned.** Decorative punctuation in source titles (em
+  dashes, curly quotes, arrows, trade mark signs) is replaced with plain ASCII.
+  Tabstack's answer text itself is passed on unchanged.
 - **Duplicate sources are merged and the merge is reported.** If two cited
   URLs are the same page (http and https, `www.`, a trailing slash, a
   `#fragment` or `utm_*` parameters), they become one source, and the answer

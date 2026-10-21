@@ -21,11 +21,18 @@ x-open-webui: &open-webui
     - "3000:8080"
   restart: unless-stopped
 
+# Open WebUI lets one reply make up to 256 tool-calling turns by default. A
+# small model can loop on a tool, and every Tabstack call is billed, so cap it.
+# Read once at start-up; it cannot be changed in the admin UI.
+x-tool-call-limit: &tool-call-limit
+  CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS: "3"
+
 services:
   open-webui-host:
     <<: *open-webui
     profiles: [host]
     environment:
+      <<: *tool-call-limit
       OLLAMA_BASE_URL: http://host.docker.internal:11434
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -45,6 +52,7 @@ services:
     depends_on:
       - ollama
     environment:
+      <<: *tool-call-limit
       OLLAMA_BASE_URL: http://ollama:11434
     volumes:
       - open-webui-bundled:/app/backend/data

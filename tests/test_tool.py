@@ -198,6 +198,7 @@ def test_only_research_and_read_url_are_exposed() -> None:
 
 
 def test_model_sees_only_the_plain_arguments() -> None:
+    # __event_emitter__ and __message_id__ are injected by Open WebUI.
     tool = Tools()
     assert list(model_schema(tool.research)["properties"]) == ["question"]
     assert list(model_schema(tool.read_url)["properties"]) == ["url"]
@@ -611,3 +612,70 @@ def test_read_url_with_recorded_page() -> None:
     )
     assert result.startswith("Page: What")
     assert "[Trimmed: kept the first " in result
+
+
+# -- per-reply call limits ----------------------------------------------------
+
+
+def test_second_research_call_in_one_reply_is_refused() -> None:
+    client = FakeClient(stream=FakeStream(sdk_events("research_complete.jsonl")))
+    tool = make_tool(client)
+    first = run(tool.research("q", __message_id__="m1"))
+    assert "Sources:" in first
+    recorder = Recorder()
+    second = run(tool.research("q", __event_emitter__=recorder, __message_id__="m1"))
+    assert second.startswith("Error: research already ran 1 time for this reply")
+    assert len(client.agent.calls) == 1
+    assert recorder.statuses() == [("Research not run again", True)]
+
+
+def test_research_limit_is_per_reply_and_configurable() -> None:
+    events = sdk_events("research_complete.jsonl")
+    client = FakeClient(stream=FakeStream(events))
+    tool = make_tool(client, max_research_calls_per_reply=2)
+    for _ in range(2):
+        client.agent.stream = FakeStream(events)
+        assert not run(tool.research("q", __message_id__="m1")).startswith("Error:")
+    assert run(tool.research("q", __message_id__="m1")).startswith("Error:")
+    client.agent.stream = FakeStream(events)
+    assert not run(tool.research("q", __message_id__="m2")).startswith("Error:")
+    assert len(client.agent.calls) == 3
+
+
+def test_no_message_id_means_no_limit() -> None:
+    events = sdk_events("research_complete.jsonl")
+    client = FakeClient(stream=FakeStream(events))
+    tool = make_tool(client)
+    for _ in range(3):
+        client.agent.stream = FakeStream(events)
+        assert not run(tool.research("q")).startswith("Error:")
+    assert len(client.agent.calls) == 3
+
+
+def test_read_url_limit_per_reply() -> None:
+    client = FakeClient(page=load_json("extract_page.json"))
+    tool = make_tool(client, max_read_url_calls_per_reply=2)
+    for _ in range(2):
+        assert run(tool.read_url("https://a.example", __message_id__="m1")).startswith(
+            "Page:"
+        )
+    third = run(tool.read_url("https://a.example", __message_id__="m1"))
+    assert third.startswith("Error: read_url already ran 2 times for this reply")
+    assert len(client.extract.calls) == 2
+
+
+def test_refused_url_does_not_use_up_the_limit() -> None:
+    client = FakeClient(page=load_json("extract_page.json"))
+    tool = make_tool(client, max_read_url_calls_per_reply=1)
+    assert run(tool.read_url("ftp://a.example", __message_id__="m1")).startswith(
+        "Error:"
+    )
+    assert run(tool.read_url("https://a.example", __message_id__="m1")).startswith(
+        "Page:"
+    )
+
+
+def test_valve_defaults_for_call_limits() -> None:
+    valves = Tools().valves
+    assert valves.max_research_calls_per_reply == 1
+    assert valves.max_read_url_calls_per_reply == 3

@@ -183,6 +183,20 @@ Paths below are relative to those checkouts: `sdk/` is the unpacked wheel
     markers will point at the wrong entries. The tool cannot see how many
     sources are already on the message.
 
+### 1.7a Per-reply identity and loop limit - CONFIRMED (source and docs)
+
+- Tools can take `__message_id__` and `__chat_id__` (docs,
+  `tools/development.mdx`, "Optional Arguments"). Source:
+  `utils/middleware.py`, `extra_params` sets
+  `'__message_id__': metadata.get('message_id')` once per request, so every
+  tool call in the agentic loop of one reply sees the same id. Seen live: all
+  repeated calls in run R4 belonged to one assistant message.
+- `CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS` caps tool-calling turns per reply,
+  default 256, `-1` for unlimited, read once at start-up and not editable in
+  the admin UI (`owui/backend/open_webui/env.py`; docs
+  `reference/env-configuration.mdx`). Each turn counts once however many tool
+  calls it contains.
+
 ### 1.8 Competing built-in web tools - CONFIRMED (source)
 
 - Open WebUI adds its own `search_web` and `fetch_url` built-in tools in Native

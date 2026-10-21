@@ -70,6 +70,33 @@ def _plural(count: int, noun: str) -> str:
     return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
 
+_DECORATIVE = str.maketrans(
+    {
+        "\u2014": "-",  # em dash
+        "\u2013": "-",  # en dash
+        "\u2012": "-",  # figure dash
+        "\u2015": "-",  # horizontal bar
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u2026": "...",
+        "\u00a0": " ",  # no-break space
+        "\u00b7": "-",  # middle dot, common in page titles
+        "\u2022": "-",  # bullet
+        "\u2192": "->",
+        "\u2190": "<-",
+        "\u2122": "",  # trade mark sign
+        "\u00ae": "",  # registered sign
+    }
+)
+
+
+def plain_punctuation(text: str) -> str:
+    """Replace decorative punctuation (dashes, curly quotes, arrows) with ASCII."""
+    return " ".join(text.translate(_DECORATIVE).split())
+
+
 # -- Citations ----------------------------------------------------------------
 
 
@@ -135,6 +162,12 @@ def url_identity(url: str) -> str:
     return f"{host}{path}?{query}" if query else f"{host}{path}"
 
 
+def _plain_title(value: object) -> str | None:
+    """Return a page title with decorative punctuation made plain, or None."""
+    title = _as_str(value)
+    return _as_str(plain_punctuation(title)) if title else None
+
+
 def parse_cited_pages(raw: object) -> tuple[CitedSource, ...]:
     """Read `metadata.citedPages` from the wire format, skipping entries with no URL."""
     sources: list[CitedSource] = []
@@ -149,7 +182,7 @@ def parse_cited_pages(raw: object) -> tuple[CitedSource, ...]:
         sources.append(
             CitedSource(
                 url=url,
-                title=_as_str(page.get("title")),
+                title=_plain_title(page.get("title")),
                 summary=_as_str(page.get("summary")),
                 claims=claims,
             )
@@ -245,6 +278,19 @@ def source_label(source: NumberedSource) -> str:
     return source.title or source.url
 
 
+# Small models sometimes call a tool again after a good answer, and every call
+# is billed, so successful results end with an explicit instruction too.
+RESEARCH_DONE = (
+    "This is the complete answer from Tabstack. Answer the user from it now, and "
+    "keep the [n] markers next to the points they support so the user can see the "
+    "source for each point. Do not call research again for this question."
+)
+READ_URL_DONE = (
+    "This is the page text from Tabstack. Answer the user from it now. Do not call "
+    "read_url again for this page."
+)
+
+
 def format_research_answer(
     report: str, sources: Sequence[CitedSource]
 ) -> FormattedAnswer:
@@ -281,10 +327,7 @@ def format_research_answer(
         )
 
     lines.append("")
-    lines.append(
-        "When you use this answer, keep the [n] markers next to the points they "
-        "support so the user can see the source for each point."
-    )
+    lines.append(RESEARCH_DONE)
     return FormattedAnswer(
         text="\n".join(lines),
         sources=numbered,
@@ -534,6 +577,7 @@ def format_page(url: str, title: str | None, markdown: str, max_chars: int) -> s
     ]
     if trimmed.trimmed:
         lines.extend(["", truncation_note(trimmed)])
+    lines.extend(["", READ_URL_DONE])
     return "\n".join(lines)
 
 
@@ -560,6 +604,28 @@ def url_problem(url: str) -> str | None:
     return None
 
 
+# -- Call limits --------------------------------------------------------------
+
+
+@dataclass
+class CallCounter:
+    """Count calls per key (one key per reply) so a looping model cannot repeat them."""
+
+    max_keys: int = 1024
+    counts: dict[str, int] = field(default_factory=dict[str, int])
+
+    def take(self, key: str, limit: int) -> bool:
+        """Record a call for key and return True, or return False if limit is used."""
+        used = self.counts.get(key, 0)
+        if used >= limit:
+            return False
+        self.counts.pop(key, None)
+        self.counts[key] = used + 1
+        while len(self.counts) > self.max_keys:
+            del self.counts[next(iter(self.counts))]
+        return True
+
+
 # -- Errors -------------------------------------------------------------------
 
 
@@ -580,6 +646,7 @@ class FailureKind(Enum):
     STREAM_INCOMPLETE = "stream_incomplete"
     UNREADABLE_PAGE = "unreadable_page"
     INVALID_URL = "invalid_url"
+    CALL_LIMIT = "call_limit"
     UNEXPECTED = "unexpected"
 
 
@@ -671,6 +738,7 @@ def failure_message(
     detail: str | None = None,
     timeout_seconds: float | None = None,
     idle_seconds: float | None = None,
+    call_limit: int | None = None,
 ) -> str:
     """Return a plain chat message for a failure. Never includes a stack trace."""
     suffix = f" ({detail})" if detail else ""
@@ -727,6 +795,16 @@ def failure_message(
         )
     elif kind is FailureKind.UNREADABLE_PAGE:
         text = f"Tabstack could not read that page{suffix}."
+    elif kind is FailureKind.CALL_LIMIT:
+        times = f" {_plural(call_limit, 'time')}" if call_limit else ""
+        text = (
+            f"{operation} already ran{times} for this reply, so it was not run "
+            "again and nothing was charged."
+        )
+        return (
+            f"Error: {text} Answer the user from the earlier result. Do not call "
+            "this tool again for this question."
+        )
     elif kind is FailureKind.INVALID_URL:
         text = "That address cannot be read: only http and https pages work."
         if detail:
@@ -867,6 +945,18 @@ class Tools:
             default="standard",
             description="'max' renders JavaScript-heavy pages but is slower.",
         )
+        max_research_calls_per_reply: int = Field(
+            default=1,
+            ge=1,
+            le=10,
+            description="Research calls allowed in one reply. Each call is billed.",
+        )
+        max_read_url_calls_per_reply: int = Field(
+            default=3,
+            ge=1,
+            le=20,
+            description="read_url calls allowed in one reply. Each call is billed.",
+        )
         read_url_max_chars: int = Field(
             default=20000,
             ge=1000,
@@ -879,11 +969,16 @@ class Tools:
         self.valves = self.Valves()
         # Seam for tests. Underscore names are not exposed to the model.
         self._client_factory: ClientFactory = _default_client
+        # Open WebUI keeps one instance per tool, so this counter outlives a
+        # single call on purpose: it caps billed calls per reply even when a
+        # model keeps calling the tool. Each Open WebUI worker counts separately.
+        self._calls = CallCounter()
 
     async def research(
         self,
         question: str,
         __event_emitter__: EventEmitter | None = None,
+        __message_id__: str | None = None,
     ) -> str:
         """
         Answer a question that needs current information from the web. Returns a cited
@@ -906,6 +1001,10 @@ class Tools:
             return failure_message(
                 FailureKind.BAD_REQUEST, "research", detail="the question was empty"
             )
+        limit = valves.max_research_calls_per_reply
+        if __message_id__ and not self._calls.take(f"research:{__message_id__}", limit):
+            await status.done("Research not run again")
+            return failure_message(FailureKind.CALL_LIMIT, "research", call_limit=limit)
 
         total = valves.research_timeout_seconds
         idle = valves.research_idle_timeout_seconds
@@ -962,6 +1061,7 @@ class Tools:
         self,
         url: str,
         __event_emitter__: EventEmitter | None = None,
+        __message_id__: str | None = None,
     ) -> str:
         """
         Read one web page and return its text as clean Markdown. Use it when the user
@@ -980,6 +1080,11 @@ class Tools:
         if not key:
             await status.done(failed_status("read_url"))
             return failure_message(FailureKind.MISSING_KEY, "read_url")
+
+        calls = valves.max_read_url_calls_per_reply
+        if __message_id__ and not self._calls.take(f"read_url:{__message_id__}", calls):
+            await status.done("Page not read again")
+            return failure_message(FailureKind.CALL_LIMIT, "read_url", call_limit=calls)
 
         host = urlsplit(target).hostname or target
         limit = valves.read_url_timeout_seconds
@@ -1008,7 +1113,7 @@ class Tools:
                 "read_url",
                 detail="the page had no readable text",
             )
-        title = _as_str(page.metadata.title) if page.metadata else None
+        title = _plain_title(page.metadata.title) if page.metadata else None
         page_url = _as_str(page.url) or target
         max_chars = valves.read_url_max_chars
         await status.send(

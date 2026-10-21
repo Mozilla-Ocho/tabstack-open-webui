@@ -6,6 +6,9 @@ import pytest
 from conftest import load_events, load_json
 
 from tabstack_tool import (
+    READ_URL_DONE,
+    RESEARCH_DONE,
+    CallCounter,
     CitedSource,
     ResearchCompleted,
     ResearchProgress,
@@ -15,6 +18,8 @@ from tabstack_tool import (
     format_page,
     format_research_answer,
     page_citation_event,
+    parse_cited_pages,
+    plain_punctuation,
     renumber_markers,
     trim_markdown,
     truncation_note,
@@ -306,3 +311,50 @@ def test_other_urls_are_refused_with_a_reason(url: str, fragment: str) -> None:
 
 def test_clean_url_strips_wrapping() -> None:
     assert clean_url("  <https://example.com>  ") == "https://example.com"
+
+
+# -- success instructions, titles, call counter -------------------------------
+
+
+def test_answers_end_with_an_instruction_not_to_call_again() -> None:
+    answer = format_research_answer("Text [1].", [CitedSource(url="https://a.example")])
+    assert answer.text.endswith(RESEARCH_DONE)
+    assert "Do not call research again for this question." in RESEARCH_DONE
+    page = format_page("https://a.example", "T", "Body.", 1000)
+    assert page.endswith(READ_URL_DONE)
+
+
+def test_plain_punctuation() -> None:
+    title = (
+        "Node.js \u2014 Node.js Releases \u00b7 About Python\u2122 \u201cx\u201d\u2026"
+    )
+    assert (
+        plain_punctuation(title) == 'Node.js - Node.js Releases - About Python "x"...'
+    )
+    assert plain_punctuation("Caf\u00e9") == "Caf\u00e9"  # letters are left alone
+
+
+def test_cited_page_titles_are_made_plain() -> None:
+    pages = parse_cited_pages(
+        [{"url": "https://nodejs.org", "title": "Node.js \u2014 Releases"}]
+    )
+    assert pages[0].title == "Node.js - Releases"
+
+
+def test_call_counter_limits_per_key() -> None:
+    counter = CallCounter()
+    assert counter.take("research:m1", 1)
+    assert not counter.take("research:m1", 1)
+    assert counter.take("research:m2", 1)
+    assert counter.take("read_url:m1", 2)
+    assert counter.take("read_url:m1", 2)
+    assert not counter.take("read_url:m1", 2)
+
+
+def test_call_counter_forgets_the_oldest_keys() -> None:
+    counter = CallCounter(max_keys=2)
+    counter.take("a", 1)
+    counter.take("b", 1)
+    counter.take("c", 1)
+    assert list(counter.counts) == ["b", "c"]
+    assert counter.take("a", 1)  # forgotten, so allowed again

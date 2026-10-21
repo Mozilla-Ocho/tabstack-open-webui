@@ -63,6 +63,8 @@ The other settings can stay on their defaults:
 | Research Idle Timeout Seconds | 120 | Stops a Research call if Tabstack sends nothing for this long. |
 | Read Url Timeout Seconds | 60 | Stops reading a page after this long. |
 | Read Url Effort | `standard` | `max` renders JavaScript-heavy pages but is slower. |
+| Max Research Calls Per Reply | 1 | Research calls allowed in one reply. Later calls are refused without contacting Tabstack. |
+| Max Read Url Calls Per Reply | 3 | The same for reading pages. |
 | Read Url Max Chars | 20000 | Longest page text passed to the model. Longer pages are trimmed, with a note saying how much was kept. |
 
 About where the key is kept:
@@ -77,7 +79,25 @@ About where the key is kept:
 For how Tabstack handles the questions and pages it receives, see
 [Tabstack's Trust page](https://tabstack.ai/trust).
 
-## 3. Turn the tool on for a model
+## 3. Limit tool calls per reply (recommended)
+
+Open WebUI lets one reply make up to 256 rounds of tool calls. In testing, a
+small model called the research tool 24 times in one reply after getting good
+answers, and each call is billed. The tool refuses calls beyond its own
+per-reply limits (the two **Max ... Calls Per Reply** settings above), but it
+is worth capping Open WebUI as well.
+
+Set this environment variable on the Open WebUI container and restart it:
+
+```
+CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS=3
+```
+
+With Docker Compose, add it under the Open WebUI service's `environment:`
+and run `docker compose up -d` again. It is read only at start-up and cannot
+be changed in the admin panel. It applies to every tool, not just this one.
+
+## 4. Turn the tool on for a model
 
 **For every chat with a model (recommended):**
 
@@ -99,12 +119,12 @@ button (next to **+**), open **Tools**, and switch **Tabstack** on.
 
 ![Switching the tool on for one chat](screenshots/chat-02-tools-toggle.png)
 
-## 4. Check that it works
+## 5. Check that it works
 
 > Pending: this step has not yet been run with a working key. It will be
 > checked against a live run before this guide is published.
 
-1. Start a new chat with the model from step 3.
+1. Start a new chat with the model from step 4.
 2. Ask something that needs current information, for example "What is the
    latest stable release of Node.js, and when did it come out?"
 3. While Research runs, status lines appear above the reply, starting with
@@ -121,13 +141,13 @@ starts with `Error:`, and Open WebUI shows the tool result with a red cross.
 Click **View Result** on it to read the message, for example that the key is
 missing or was rejected.
 
-## 5. If the model never calls the tool
+## 6. If the model never calls the tool
 
 Whether a model decides to use a tool is up to the model. The tool cannot make
 it. These are the things to check, in order.
 
 **The tool is switched on.** A wrench icon with a number appears under the
-message box when tools are on for the chat. If it is missing, repeat step 3.
+message box when tools are on for the chat. If it is missing, repeat step 4.
 
 **Open WebUI's built-in tools are crowding it out.** By default Open WebUI
 offers the model about 36 tools of its own (memory, notes, knowledge bases,
@@ -138,7 +158,7 @@ off (see [EVIDENCE.md](EVIDENCE.md), sections 5 and 6). That is a small
 number of runs on two models, not a guarantee. To switch them off for one
 model:
 
-1. Open the model in **Admin Panel > Settings > Models**, as in step 3.
+1. Open the model in **Admin Panel > Settings > Models**, as in step 4.
 2. Click the **Capabilities** row and switch **Builtin Tools** off.
 3. Click **Save & Update**.
 

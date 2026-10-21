@@ -176,7 +176,9 @@ def test_every_message_is_plain(kind: FailureKind, operation: Operation) -> None
         kind, operation, detail="detail", timeout_seconds=10, idle_seconds=5
     )
     assert message.startswith("Error: ")
-    assert "Tell the user exactly this." in message
+    if kind is not FailureKind.CALL_LIMIT:
+        # The call-limit message is for the model, not something to relay.
+        assert "Tell the user exactly this." in message
     if kind is not FailureKind.INVALID_URL:
         assert message.endswith("Do not call this tool again for this question.")
     assert message.isascii()
@@ -229,3 +231,13 @@ def test_invalid_url_message_allows_a_corrected_call() -> None:
         "Only call read_url again with a full address that starts with http:// "
         "or https://."
     )
+
+
+def test_call_limit_message() -> None:
+    message = failure_message(FailureKind.CALL_LIMIT, "research", call_limit=1)
+    assert message == (
+        "Error: research already ran 1 time for this reply, so it was not run again "
+        "and nothing was charged. Answer the user from the earlier result. Do not "
+        "call this tool again for this question."
+    )
+    assert "ran for this reply" in failure_message(FailureKind.CALL_LIMIT, "read_url")
