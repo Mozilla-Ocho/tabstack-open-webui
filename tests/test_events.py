@@ -181,3 +181,20 @@ def test_complete_without_cited_pages() -> None:
 def test_finished_status() -> None:
     assert finished_status(1) == "Research finished, 1 source"
     assert finished_status(4) == "Research finished, 4 sources"
+
+
+def test_recorded_stream_completes() -> None:
+    # Recorded from the live API on 2026-10-21; see tests/fixtures/README.md.
+    progress, statuses = run("recorded_research_complete.jsonl")
+    assert statuses == [
+        "Planning searches",
+        "Searching, round 1 of 1",
+        "Found 5 new sources",
+        "Writing the answer",
+    ]
+    outcome = progress.result()
+    assert isinstance(outcome, ResearchCompleted)
+    answer = format_research_answer(outcome.report, outcome.sources)
+    assert len(answer.sources) == 4
+    assert answer.unmatched_markers == ()
+    assert "[1]" in answer.text

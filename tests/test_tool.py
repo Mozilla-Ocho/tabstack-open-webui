@@ -596,3 +596,18 @@ def test_key_never_reaches_the_chat_in_any_scenario() -> None:
             )
         assert KEY not in everything_sent(recorder, result)
         assert client.created_with[0][0] == KEY
+
+
+def test_recorded_fixtures_match_the_sdk_types() -> None:
+    events = sdk_events("recorded_research_complete.jsonl")
+    assert len(events) == 10
+    ExtractMarkdownResponse.model_validate(load_json("recorded_extract_page.json"))
+
+
+def test_read_url_with_recorded_page() -> None:
+    client = FakeClient(page=load_json("recorded_extract_page.json"))
+    result = run(
+        make_tool(client).read_url("https://docs.python.org/3/whatsnew/3.14.html")
+    )
+    assert result.startswith("Page: What")
+    assert "[Trimmed: kept the first " in result

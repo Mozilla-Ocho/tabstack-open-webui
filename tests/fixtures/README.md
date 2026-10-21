@@ -1,7 +1,22 @@
 # Fixtures
 
-All fixtures here are hand-built, not recorded. They were written on
-2026-10-21 without calling the API (the account had no credits at the time).
+Two kinds of fixture live here: hand-built ones, written on 2026-10-21 before
+the account had credits, and two recorded from the live API later the same
+day.
+
+## Recorded
+
+Recorded on 2026-10-21 with `tabstack==2.8.5` (`AsyncTabstack`, default
+timeout and retries). Each streamed event was saved exactly as the SDK's
+`to_dict()` returned it. Nothing was edited. The files contain no API key; the
+tests in `tests/test_secrets.py` check this.
+
+| File | Call |
+| --- | --- |
+| `recorded_research_complete.jsonl` | `agent.research(query="What is the latest stable release of Node.js, and when did it come out?", mode="fast")`: 10 events, `start` to `complete`, 15.4 s. The `complete` event has no `metrics` field, so no usage was reported. |
+| `recorded_extract_page.json` | `extract.markdown(url="https://docs.python.org/3/whatsnew/3.14.html", metadata=True)`: 148,117 characters, 1.6 s. The page text is from the Python documentation, (c) Python Software Foundation, under the PSF documentation licence. |
+
+## Hand-built
 
 - Shapes follow the Tabstack SDK 2.8.5 types (`tabstack/types/research_event.py`,
   `tabstack/types/extract_markdown_response.py`) in the API's wire format:
@@ -20,4 +35,5 @@ All fixtures here are hand-built, not recorded. They were written on
 | `extract_page.json` | An `extract.markdown(metadata=True)` response for a page long enough to trim, including a fenced code block. |
 | `extract_empty.json` | A response whose `content` is only whitespace. |
 
-Replace these with recorded fixtures once real runs are possible, and say so here.
+The hand-built files cover cases a single live call cannot produce on demand:
+URL variants to merge, a streamed error, and a stream that closes early.

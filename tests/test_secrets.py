@@ -20,13 +20,15 @@ SKIP_DIRS = {
 
 # The format of a Tabstack key is not documented, so these patterns are generic:
 # an assignment to TABSTACK_API_KEY, a bearer token, or a long unbroken run of
-# key-like characters mixing letters and digits (long identifiers such as
-# ENABLE_PIP_INSTALL_FRONTMATTER_REQUIREMENTS have no digits and are skipped).
+# key-like characters with letters and at least four digits. Long identifiers
+# (ENABLE_PIP_INSTALL_FRONTMATTER_REQUIREMENTS, _PyUnicodeWriter_WriteLatin1String)
+# and URL fragments after '#' are skipped; a random 32+ character key almost
+# always has four or more digits.
 KEY_PATTERNS = [
     re.compile(r"TABSTACK_API_KEY\s*[=:]\s*['\"]?[A-Za-z0-9_\-]{8,}"),
     re.compile(r"Bearer\s+[A-Za-z0-9_\-\.]{16,}"),
     re.compile(
-        r"(?<![A-Za-z0-9_\-/.])(?=[A-Za-z0-9_\-]*[0-9])(?=[A-Za-z0-9_\-]*[A-Za-z])"
+        r"(?<![A-Za-z0-9_\-/.#])(?=(?:[A-Za-z_\-]*[0-9]){4})(?=[A-Za-z0-9_\-]*[A-Za-z])"
         r"[A-Za-z0-9_\-]{32,}(?![A-Za-z0-9_\-/.])"
     ),
 ]
@@ -102,6 +104,8 @@ def test_key_patterns_catch_planted_samples() -> None:
     for innocent in [
         "ENABLE_PIP_INSTALL_FRONTMATTER_REQUIREMENTS",
         "https://example.com/a/b",
+        "_PyUnicodeWriter_WriteLatin1String",
+        "(http://docs.python.org#whatsnew-pep750-template-string-literals)",
     ]:
         assert not any(p.search(innocent) for p in KEY_PATTERNS), innocent
 
