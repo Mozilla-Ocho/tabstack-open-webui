@@ -1,0 +1,6 @@
+{"event": "start", "data": {"message": "Starting research", "timestamp": 1792000000000.0}}
+{"event": "planning:start", "data": {"message": "Planning research strategy", "timestamp": 1792000001000.0, "hasPrefetchedContext": false}}
+{"event": "planning:end", "data": {"message": "Planning complete: 4 queries", "timestamp": 1792000002000.0, "complexity": "simple", "objective": "Explain the example tool release", "plan": "Search docs and news", "queries": ["example tools docs", "example tools release", "example web search", "example tools changelog"], "questions": ["What changed?"]}}
+{"event": "iteration:start", "data": {"message": "Starting iteration 1 of 1", "timestamp": 1792000003000.0, "iteration": 1.0, "maxIterations": 1.0, "queries": ["example tools docs", "example tools release"]}}
+{"event": "searching:start", "data": {"message": "Searching 4 queries", "timestamp": 1792000004000.0, "iteration": 1.0, "queries": ["example tools docs", "example tools release", "example web search", "example tools changelog"]}}
+{"event": "error", "data": {"message": "Research failed", "timestamp": 1792000006000.0, "activity": "searching", "iteration": 1.0, "error": {"name": "SearchProviderError", "message": "All search providers failed", "stack": "SearchProviderError: All search providers failed\n    at search (/srv/app/search.js:41:11)"}}}

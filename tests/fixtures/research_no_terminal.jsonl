@@ -1,0 +1,8 @@
+{"event": "start", "data": {"message": "Starting research", "timestamp": 1792000000000.0}}
+{"event": "planning:start", "data": {"message": "Planning research strategy", "timestamp": 1792000001000.0, "hasPrefetchedContext": false}}
+{"event": "planning:end", "data": {"message": "Planning complete: 4 queries", "timestamp": 1792000002000.0, "complexity": "simple", "objective": "Explain the example tool release", "plan": "Search docs and news", "queries": ["example tools docs", "example tools release", "example web search", "example tools changelog"], "questions": ["What changed?"]}}
+{"event": "iteration:start", "data": {"message": "Starting iteration 1 of 1", "timestamp": 1792000003000.0, "iteration": 1.0, "maxIterations": 1.0, "queries": ["example tools docs", "example tools release"]}}
+{"event": "searching:start", "data": {"message": "Searching 4 queries", "timestamp": 1792000004000.0, "iteration": 1.0, "queries": ["example tools docs", "example tools release", "example web search", "example tools changelog"]}}
+{"event": "searching:end", "data": {"message": "Found 24 URLs (18 new)", "timestamp": 1792000008000.0, "iteration": 1.0, "urlsFound": 24.0, "urlsNew": 18.0}}
+{"event": "iteration:end", "data": {"message": "Iteration 1 complete", "timestamp": 1792000009000.0, "iteration": 1.0, "isLast": true, "stopReason": "max_iterations"}}
+{"event": "writing:start", "data": {"message": "Writing report", "timestamp": 1792000010000.0, "attempt": 1.0, "isRevision": false, "maxAttempts": 1.0}}
