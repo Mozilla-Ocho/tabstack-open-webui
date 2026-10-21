@@ -6,8 +6,9 @@ What was actually run, when, and what happened. Nothing here is estimated.
 
 Phase 4 is partly done. The Tabstack account used for testing had no credits
 on 2026-10-21, so no successful Research or Extract call has been made yet.
-Everything below was done without spending credits. The five research
-questions and three `read_url` calls the brief asks for are still to do.
+Everything below was done without spending credits: the API key valve was
+left empty, or a deliberately fake key was used. The five research questions
+and three `read_url` calls with real results are still to do.
 
 ## Environment
 
@@ -17,20 +18,25 @@ questions and three `read_url` calls the brief asks for are still to do.
 | Machine | Apple M3, macOS 26.5.2 (build 25F84) |
 | Container runtime | OrbStack 2.2.3, Docker 29.4.0, Docker Compose v5.1.2; 8 CPUs and 11.74 GiB visible to containers |
 | Open WebUI | `ghcr.io/open-webui/open-webui:v0.12.3` (`sha256:a537bbe1e6b4...`), reports version 0.12.3 |
-| Ollama (container) | `ollama/ollama:0.40.7` (`sha256:2e6cc92ffa43...`), CPU only |
-| Models pulled | `llama3.2:3b` (ID `a80c4f17acd5`, 2.0 GB), `qwen3:4b` (ID `359d7dd4bcda`, 2.5 GB, not used yet) |
+| Ollama, `host` profile | Ollama 0.40.7 installed on the Mac (Metal), reached from the container at `host.docker.internal:11434` |
+| Ollama, `bundled` profile | `ollama/ollama:0.40.7` (`sha256:2e6cc92ffa43...`), CPU only |
+| Models, `host` profile | `llama3.1:8b` (ID `46e0c10c039e`, 4.9 GB), `qwen3:8b` (ID `500a1f067a9f`, 5.2 GB); both already on the machine |
+| Models, `bundled` profile | `llama3.2:3b` (ID `a80c4f17acd5`, 2.0 GB); `qwen3:4b` pulled but not used |
 | Tabstack SDK | `tabstack==2.8.5`, installed by Open WebUI from the tool's frontmatter |
 | Python inside Open WebUI | 3.11.17 |
 | Tool version | `tabstack_tool.py` 0.1.0 at the commit that adds this file |
 | Browser automation | Playwright 1.58.0 with headless Chromium, driving the real UI |
 
-The compose file is `docker-compose.yml` in this repo. The admin account was
-created through the normal first-run sign-up page.
+The compose file is `docker-compose.yml` in this repo. Each profile has its own
+data volume, and in each the admin account was created through the normal
+first-run sign-up page. The `bundled` profile was tried first (sections 1 to
+4); the `host` profile was set up afterwards because of the speed problem in
+section 4, and the tool-calling runs in section 5 use it.
 
 ## 1. Installing the tool through the admin UI
 
-Done once on a fresh volume, then the file was pasted again over the saved
-copy after a change. Steps as performed:
+Done on a fresh volume for each profile. The screenshots are from the `host`
+profile install. Steps as performed:
 
 1. Workspace > Tools > Create.
    (`screenshots/install-01-tools-empty.png`)
@@ -42,8 +48,6 @@ copy after a change. Steps as performed:
    run arbitrary code. Clicked Confirm. (`screenshots/install-03-confirm.png`)
 4. The server log shows pip installing the requirement and the module loading:
    ```
-   Downloading tabstack-2.8.5-py3-none-any.whl (107 kB)
-   Installing collected packages: tabstack
    Successfully installed tabstack-2.8.5
    ... load_tool_module_by_id:245 - Loaded module: tool_tabstack_...
    ```
@@ -61,28 +65,48 @@ Checked through the API (`GET /api/v1/tools/id/tabstack`):
   the descriptions taken from the docstrings. No `__event_emitter__` in either.
 - The valve schema has the seven fields; the key field carries
   `"input": {"type": "password"}`.
+- On the `host` install the stored source was byte-identical to the file
+  (35,959 characters).
 
 Findings from the install:
 
-- **Open WebUI reformats tool code with black when it is saved.** The first
-  paste was stored 875 characters longer than the file, with lines rewrapped
-  at 88 columns. The editor calls `/api/v1/utils/code/format`, which runs
+- **Open WebUI reformats tool code with black when it is saved.** On the
+  first `bundled` install the stored copy was 875 characters longer than the
+  file, with lines rewrapped at 88 columns. The editor calls
+  `/api/v1/utils/code/format`, which runs
   `black.format_str(code, mode=black.Mode())` (black 26.5.1 in the image).
-  The file was changed to keep to black's style (ruff at 88 columns, one
-  `pyright: ignore` replaced by a `cast`), and a test now checks that black
-  leaves it unchanged. After pasting again, the stored source was
-  byte-identical to the file (35,959 characters both).
-- **Metadata is not re-read when an existing tool is edited.** After the
-  second paste, the list still showed the first description. This matches the
-  docs ("it does not re-derive fields when editing an existing item"). The
-  screenshots above show that older description.
+  The file was changed to keep to black's style, and a test now checks that
+  black leaves it unchanged.
+- **Metadata is not re-read when an existing tool is edited.** After pasting a
+  changed file over the saved tool, the list kept the first description. This
+  matches the docs ("it does not re-derive fields when editing an existing
+  item").
 
-## 2. The tool running inside Open WebUI's runtime
+## 2. Enabling the tool for a model
 
-`tabstack_tool.py` was copied into the running Open WebUI container and called
-directly with its Python 3.11.17 and the SDK it had installed. The copy was
-deleted afterwards. A deliberately fake key was used for the two calls that
-reach the API; the real key was not used.
+Two ways were used, both through the UI:
+
+- **For one chat:** the Integrations button under the message box > Tools >
+  switch Tabstack on (`screenshots/chat-01-integrations.png`,
+  `screenshots/chat-02-tools-toggle.png`).
+- **For a model, permanently:** user menu > Admin Panel > Settings > Models >
+  click the model. In the editor, the Tools row opens a picker; ticking
+  Tabstack and clicking Done, then Save & Update, stored
+  `toolIds: ["tabstack"]` on the model (`screenshots/model-01-editor.png`,
+  `screenshots/model-02-tools-picker.png`). New chats with that model then
+  start with the tool on.
+
+The same editor has a Capabilities row with a single **Builtin Tools** switch,
+on by default (`screenshots/model-03-capabilities.png`). Section 5 shows why
+it matters. Typing `/admin/settings` into the address bar redirected to the
+chat page in this setup; going through the user menu worked.
+
+## 3. The tool running inside Open WebUI's runtime
+
+`tabstack_tool.py` was copied into the running Open WebUI container
+(`bundled` profile) and called directly with its Python 3.11.17 and the SDK it
+had installed. The copy was deleted afterwards. A deliberately fake key was
+used for the two calls that reach the API.
 
 | Case | Time | Result returned to the model | Status lines |
 | --- | --- | --- | --- |
@@ -95,51 +119,92 @@ The fake key did not appear in any result or status event. The two API calls
 confirm the live 401 path is mapped as designed; they say nothing about
 successful calls.
 
-## 3. Chat runs
-
-### Run r0: research question, no key set, `llama3.2:3b`
-
-- Setup: new chat, model `llama3.2:3b`, Tabstack switched on for the chat
-  under the Integrations button > Tools (`screenshots/chat-01-integrations.png`,
-  `screenshots/chat-02-tools-toggle.png`). Function calling left on its
-  default (Native). Open WebUI's own web search was off (default config).
-- Prompt: "What did the Python Software Foundation announce this week? Use the
-  research tool."
-- Outcome: **the model did not call the tool.** It replied "I can't help with
-  that." Open WebUI then suggested a follow-up, "Can you use the research tool
-  again to find the announcement?", although the tool had not been used.
-  (`screenshots/run-r0-no-tool-call.png`)
-- The Ollama log shows the request carrying the tools: 2,050 prompt tokens,
-  8 tokens generated, 4 min 37 s for that request. No tool call appears in the
-  saved chat. Because the tool was never called, the missing key was never
-  reported in the chat.
-- One message produced four `/api/chat` requests to Ollama in total (the
-  reply plus Open WebUI's background tasks such as the title and follow-ups),
-  finishing about 10 minutes after the message was sent.
-
-This is one run of one prompt, so it shows only that this model can decline
-a tool it was explicitly asked to use. It is not a rate.
-
-## 4. Model speed in this environment
+## 4. Model speed in the `bundled` profile
 
 Generation inside the Ollama container was far slower than prompt processing:
 
 | Measurement | Prompt processing | Generation |
 | --- | --- | --- |
-| Run r0, request with tool specs (Ollama log) | 13.46 tokens/s | 0.20 tokens/s |
+| Run r0 (below), request with tool specs, from the Ollama log | 13.46 tokens/s | 0.20 tokens/s |
 | `ollama run llama3.2:3b --verbose "Say hello in five words."` in the container | 1.74 tokens/s | 0.26 tokens/s |
-| Host Ollama 0.40.7 (Metal), existing `llama3.1:8b`, same prompt | 36.3 tokens/s | 14.3 tokens/s |
+| Host Ollama 0.40.7 (Metal), `llama3.1:8b`, same prompt | 36.3 tokens/s | 14.3 tokens/s |
 
 During these measurements the host load average was between 8.8 and 11.0 on
 8 cores, with other applications running (the top process was a game at about
 66% CPU). The cause of the slow container generation was not investigated
-further. At this speed one chat turn with the tool takes several minutes
-before the tool result is even processed.
+further.
 
-## 5. Still to do (needs credits)
+**Run r0** (`bundled`, `llama3.2:3b`, tool switched on for the chat, built-in
+tools on, no key): prompt "What did the Python Software Foundation announce
+this week? Use the research tool." The model replied "I can't help with that."
+without calling the tool. The request carrying the tools was 2,050 prompt
+tokens, 8 tokens generated, 4 min 37 s. Open WebUI then suggested the
+follow-up "Can you use the research tool again to find the announcement?",
+although the tool had not been used. (`screenshots/run-r0-no-tool-call.png`)
 
-- Five research questions and three `read_url` calls, with outcomes as they
-  happen, including runs where the model does not call the tool.
+## 5. Tool-calling runs, `host` profile, no key
+
+All runs used a new chat, function calling on its default (Native), Open
+WebUI's own web search off (default config) and an empty API key valve, so
+every tool call returned the missing-key message. These runs test whether the
+model calls the tool and what it does with an error. They do not test
+answers.
+
+To see exactly what the model was offered, a small logging proxy was placed
+between Open WebUI and Ollama for runs p1b to q4. It recorded the tool names
+in each `/api/chat` request and nothing else. Open WebUI's Ollama URL was
+pointed at it through the admin API and set back afterwards.
+
+**What the model is offered.** With built-in tools on (the default), every
+chat request listed **38 tools**: `read_url`, `research`, and 36 of Open
+WebUI's own (`get_current_timestamp`, `calculate_timestamp`, `ask_user`, seven
+knowledge tools, `search_chats`, `view_chat`, eight memory tools, four note
+tools, `create_skill`, two task tools, five automation tools and four
+calendar tools). With the model's Builtin Tools capability switched off, the
+list was exactly `read_url` and `research`.
+
+| Run | Model | Built-in tools | Prompt | Tool calls | What the model said | Time to done |
+| --- | --- | --- | --- | --- | --- | --- |
+| p1 | llama3.1:8b | on (tool on for chat) | What did the Python Software Foundation announce this week? | none | No ability to browse; listed places to look | not recorded |
+| p1b | llama3.1:8b | on (tool on for chat) | same | none | "I don't have any information about the Python Software Foundation announcing something recently." | 28.4 s |
+| p2 | llama3.1:8b | on (tool on for model) | same | none | No ability to browse; suggested places to look | 57.8 s |
+| p3 | llama3.1:8b | off | same | `research({"question": "Python Software Foundation announcement this week"})` | "I'm unable to find the latest announcement ... I recommend checking the official Python Software Foundation website" | 28.1 s |
+| p4 | llama3.1:8b | off | Summarise this page for me: https://docs.python.org/3/whatsnew/3.14.html | `read_url({"url": "https://docs.python.org/3/whatsnew/3.14.html"})` | "To summarize the page, I would need to access the webpage directly", then steps to read it in a browser | not recorded |
+| p5 | llama3.1:8b | off | What is the latest stable release of Node.js, and when did it come out? | `research` with the prompt as the question | "I'm unable to retrieve the latest stable release ... I recommend checking the official Node.js website" | 8.6 s |
+| q1 | qwen3:8b | on (tool on for model) | What did the Python Software Foundation announce this week? | none | No access to real-time news; pointed to python.org/psf and offered to help search | 80.3 s |
+| q2 | qwen3:8b | off | same | `research` with the prompt as the question | Said there was "an error related to the Tabstack tool's API key configuration, which isn't directly relevant to your question", then pointed to the PSF website | 139.2 s |
+| q3 | qwen3:8b | off | Summarise this page for me: https://docs.python.org/3/whatsnew/3.14.html | `read_url` with that URL, **twice** (called again after the first error) | Said the tool had a configuration problem and to "contact the Open WebUI admin to add an API key for the Tabstack tool in its Valves settings" | not recorded |
+| q4 | qwen3:8b | off | What is the latest stable release of Node.js, and when did it come out? | `research` with the prompt as the question | "It seems there's a technical issue with the tools ... My knowledge cutoff is October 2023" | 295.9 s |
+
+"Time to done" is wall-clock time from sending the message until Open WebUI
+marked the reply done, measured by the test script; it includes Open WebUI's
+background title request. Rows marked "not recorded" were not captured by the
+script.
+
+Screenshots: `screenshots/run-p1b-builtins-on-no-call.png`,
+`screenshots/run-p3-builtins-off-called.png`,
+`screenshots/run-p4-read-url-called.png`. In the UI a failed call shows as a
+red cross with "View Result from research", because Open WebUI marks a tool
+result that starts with `Error:` as failed.
+
+What these runs show, and only for these prompts and models:
+
+- With built-in tools on, neither model called the tool in any of the four
+  runs (p1, p1b, p2, q1), whether the tool was switched on for the chat or for
+  the model.
+- With built-in tools off, both models called the right function with
+  sensible arguments in all six runs (p3, p4, p5, q2, q3, q4).
+- The missing-key message was relayed accurately once (q3). In q2 the model
+  mentioned the key but called it irrelevant. In the other four the models
+  said they were unable to get the information, without saying why.
+- In q3 the model called `read_url` a second time after the error. The tool
+  adds no retries, but a model can repeat a call by itself; with a working key
+  that would repeat the work and the billing.
+
+## 6. Still to do (needs credits)
+
+- Five research questions and three `read_url` calls with a working key, with
+  outcomes as they happen.
 - Screenshots of live status updates and of a cited answer with source chips.
-- A recorded Research stream to replace or sit beside the hand-built fixtures.
+- A recorded Research stream to sit beside the hand-built fixtures.
 - Usage, if the API reports it (`metadata.metrics`); no cost will be estimated.

@@ -1,28 +1,55 @@
-# Ollama plus Open WebUI for manual testing of tabstack_tool.py.
-# Not a dependency of the tool. Open WebUI is served on http://localhost:3000.
+# Open WebUI for manual testing of tabstack_tool.py. Not a dependency of the tool.
+# Open WebUI is served on http://localhost:3000. Pick one profile:
 #
-# On macOS, Ollama in a container runs on the CPU only (no Metal), so replies
-# from a local model are slower than with Ollama installed natively.
+#   docker compose --profile host up -d
+#     Open WebUI in a container, using Ollama already installed on this machine.
+#     On macOS this keeps Metal acceleration, which a container cannot use.
+#     Ollama must be running on the host (port 11434). On Linux, start it with
+#     OLLAMA_HOST=0.0.0.0 so the container can reach it.
+#
+#   docker compose --profile bundled up -d
+#     Ollama and Open WebUI both in containers. Self-contained, but on macOS
+#     Ollama runs on the CPU only and replies are much slower.
+#
+# Each profile has its own data volume. Open WebUI saves the Ollama address in
+# its database on first start, so sharing one volume would keep the first
+# profile's address.
+
+x-open-webui: &open-webui
+  image: ghcr.io/open-webui/open-webui:v0.12.3
+  ports:
+    - "3000:8080"
+  restart: unless-stopped
 
 services:
+  open-webui-host:
+    <<: *open-webui
+    profiles: [host]
+    environment:
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - open-webui-host:/app/backend/data
+
   ollama:
     image: ollama/ollama:0.40.7
+    profiles: [bundled]
     volumes:
       - ollama:/root/.ollama
     restart: unless-stopped
 
-  open-webui:
-    image: ghcr.io/open-webui/open-webui:v0.12.3
+  open-webui-bundled:
+    <<: *open-webui
+    profiles: [bundled]
     depends_on:
       - ollama
-    ports:
-      - "3000:8080"
     environment:
       OLLAMA_BASE_URL: http://ollama:11434
     volumes:
-      - open-webui:/app/backend/data
-    restart: unless-stopped
+      - open-webui-bundled:/app/backend/data
 
 volumes:
   ollama:
-  open-webui:
+  open-webui-host:
+  open-webui-bundled:
