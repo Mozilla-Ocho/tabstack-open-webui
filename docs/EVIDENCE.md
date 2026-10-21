@@ -4,11 +4,11 @@ What was actually run, when, and what happened. Nothing here is estimated.
 
 ## Status
 
-Phase 4 is partly done. The Tabstack account used for testing had no credits
-on 2026-10-21, so no successful Research or Extract call has been made yet.
-Everything below was done without spending credits: the API key valve was
-left empty, or a deliberately fake key was used. The five research questions
-and three `read_url` calls with real results are still to do.
+Phase 4 is partly done. Sections 1 to 6 were run before the Tabstack account
+had credits (empty key or a deliberately fake key). Section 7 covers the first
+runs with a working key, later on 2026-10-21. Those runs were **stopped part
+way** after the model started calling Research repeatedly; three of the five
+research questions completed and none of the `read_url` calls were run.
 
 ## Environment
 
@@ -267,7 +267,61 @@ All on the `host` profile, through the UI, with a deliberately fake key
 - The key was then switched back to Default (empty), and the API confirmed no
   key was stored.
 
-## 7. Still to do (needs credits)
+## 7. Live runs with a working key (stopped)
+
+### 7.1 Recorded directly through the SDK
+
+One Research call and one Extract call were made with the SDK, outside Open
+WebUI, to record fixtures (`tests/fixtures/recorded_*`):
+
+- `agent.research(query="What is the latest stable release of Node.js, and
+  when did it come out?", mode="fast")`: 10 events from `start` to
+  `complete` in 15.4 s; 4 cited pages, markers `[1]` to `[4]` all matched.
+  The `complete` event had **no `metrics` field**, so the API reported no
+  usage for this call.
+- `extract.markdown(url="https://docs.python.org/3/whatsnew/3.14.html",
+  metadata=True)`: 148,117 characters in 1.6 s.
+
+### 7.2 Chat runs
+
+Setup: `host` profile, `llama3.1:8b` with Tabstack enabled on the model and
+**Builtin Tools switched off** (the configuration from section 5), function
+calling Native, the real key set through the Valves dialog by a script that
+read it from the environment. Default valves (`fast` mode, 300 s limit).
+
+| Run | Prompt | Research calls | What happened |
+| --- | --- | --- | --- |
+| R1 | What is the latest stable release of Node.js, and when did it come out? | 1 | Statuses: Starting research, Planning searches, Searching, round 1 of 1, Found 4 new sources, Writing the answer, Research finished, 3 sources. The reply repeated the tool's answer word for word with its `[n]` markers, which rendered as source chips, and a 3-source panel. 56.3 s to done. (`screenshots/live-R1-status-searching.png`, `screenshots/live-R1-cited-answer.png`) |
+| R2 | What did the Python Software Foundation announce this week? | 4 | All four calls succeeded. Each answer named the same two announcements (the wiki relaunch on 20 October 2026 and the Q3 2026 Fellows on 19 October 2026). The model called `research` again after each, then replied: "I apologize for the limited knowledge I have on this topic. I am unable to verify any information regarding a recent announcement by the Python Software Foundation." 10 sources ended up on the one message. 63.1 s to done. (`screenshots/live-R2-four-calls-no-answer.png`) |
+| R3 | What changed in Open WebUI version 0.12.3? | 1 | One successful call with 5 sources. The model rewrote the answer as bullet points, put `[1]` at the start of every bullet and dropped some of the original markers, so the chips no longer match the sources Tabstack cited for each point. 133.1 s to done. (`screenshots/live-R3-markers-rewritten.png`) |
+| R4 | Which UK bank holidays are left in 2026 in England? | 24 | Every call succeeded; the first said two bank holidays remained (Christmas Day on 25 December and the Boxing Day substitute on 28 December 2026). The model kept calling `research` with the same question. The run was stopped by hand (below) with no reply text. (`screenshots/live-R4-repeated-calls.png`) |
+| R5 | Who won the most recent Formula 1 Grand Prix? | 2 | Both calls succeeded with the same answer; stopped by hand before the model replied. |
+
+The three `read_url` prompts were not run.
+
+### 7.3 How the runs were stopped
+
+When R4 passed about 19 calls, the key was cleared from the valve through the
+admin API (so any further call would fail without reaching Tabstack), the
+test scripts were killed, and the two generation tasks still running on the
+server (R4 and R5) were stopped with `POST /api/tasks/stop/{id}`. Every one of
+the 24 R4 calls and both R5 calls had already returned a successful answer,
+so all were made with the key.
+
+Total calls made with the working key on 2026-10-21: **33 Research calls**
+(1 recording, then 1 + 4 + 1 + 24 + 2 in chat) and **1 Extract call**. No
+cost is estimated here; the API reported no usage for the recorded call.
+
+### 7.4 Why the loop could run so long
+
+Open WebUI caps tool-calling turns per reply with
+`CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS`, default **256**. It is read once at
+start-up and cannot be changed in the admin UI (`owui/backend/open_webui/env.py`;
+docs `reference/env-configuration.mdx`). Nothing else in Open WebUI or in the
+tool stopped R4. The tool adds no retries, but it also did nothing to stop the
+model calling it again after a successful answer.
+
+## 8. Still to do
 
 - Five research questions and three `read_url` calls with a working key, with
   outcomes as they happen.
