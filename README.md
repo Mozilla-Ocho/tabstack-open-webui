@@ -52,8 +52,10 @@ valves.
   tool again after an error; see the evidence.
 - **Failures come back as plain messages** starting `Error:`, such as a
   missing or rejected key, a timeout, a stream that ended with an error, a
-  stream that closed early, or a page Tabstack could not read. No stack traces
-  reach the chat, and the key is never echoed.
+  stream that closed early, or a page Tabstack could not read. Each is one
+  sentence written for the user, followed by an instruction to repeat it and
+  not call the tool again for the same question. No stack traces reach the
+  chat, and the key is never echoed.
 - **`read_url` only accepts `http` and `https` URLs** and says why when it
   refuses one.
 - **Duplicate sources are merged and the merge is reported.** If two cited
@@ -65,11 +67,11 @@ valves.
 ## Known limits
 
 - **Whether the model calls the tool is up to the model.** In the runs in
-  [docs/EVIDENCE.md](docs/EVIDENCE.md), `llama3.1:8b` and `qwen3:8b` never
-  called it while Open WebUI's built-in tools were on (36 extra tools offered
-  alongside this one), and called it in every run once the model's Builtin
-  Tools capability was switched off. That is ten runs on two models, not a
-  rate.
+  [docs/EVIDENCE.md](docs/EVIDENCE.md), `llama3.1:8b` and `qwen3:8b` did not
+  call it in any of four runs while Open WebUI's built-in tools were on (36
+  extra tools offered alongside this one), and called it in all thirteen runs
+  once the model's Builtin Tools capability was switched off. That is a small
+  number of runs on two models, not a rate.
 - **Citation numbers are per message.** Open WebUI numbers sources in the
   order they arrive on a message. If the model calls `research` twice in one
   reply, or another tool adds sources first, the `[n]` chips for the second

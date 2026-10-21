@@ -201,7 +201,73 @@ What these runs show, and only for these prompts and models:
   adds no retries, but a model can repeat a call by itself; with a working key
   that would repeat the work and the billing.
 
-## 6. Still to do (needs credits)
+### 5a. Re-run with reworded error messages (v2)
+
+After the runs above, every failure message was rewritten as one sentence for
+the user, followed by "Tell the user exactly this. Do not call this tool again
+for this question." (for an invalid URL the second part instead allows a call
+with a full http or https address). The missing-key message became:
+
+```
+Error: The Tabstack tool is not set up yet: it has no API key. An Open WebUI
+admin needs to add one in the tool's Valves. Tell the user exactly this. Do
+not call this tool again for this question.
+```
+
+The updated file was pasted over the saved tool, and the six built-ins-off
+prompts were run again with the same models and settings, still with no key.
+No proxy was used for these runs.
+
+| Run | Model | Prompt | Tool calls | What the model said | Time to done |
+| --- | --- | --- | --- | --- | --- |
+| p3v2 | llama3.1:8b | What did the Python Software Foundation announce this week? | `research` once, with the prompt as the question | "The Python Software Foundation did not announce anything this week. Unfortunately, the "research" tool is not set up with an API key, so I couldn't retrieve any information. An Open WebUI admin needs to add an API key in the tool's Valves for future queries." | 17.2 s |
+| p4v2 | llama3.1:8b | Summarise this page for me: https://docs.python.org/3/whatsnew/3.14.html | `read_url` once, with that URL | "The Tabstack tool is not set up yet. An Open WebUI admin needs to add an API key in the tool's Valves." | 8.7 s |
+| p5v2 | llama3.1:8b | What is the latest stable release of Node.js, and when did it come out? | `research` once (`"latest stable release of Node.js and release date"`) | Same as p4v2 | 6.6 s |
+| q2v2 | qwen3:8b | What did the Python Software Foundation announce this week? | `research` once | The message word for word, then "I cannot proceed with further research or function calls for this question until this issue is resolved." | 127.4 s |
+| q3v2 | qwen3:8b | Summarise this page for me: https://docs.python.org/3/whatsnew/3.14.html | `read_url` once | The message word for word | 254.3 s |
+| q4v2 | qwen3:8b | What is the latest stable release of Node.js, and when did it come out? | `research` once | The message word for word | 203.1 s |
+
+Screenshots: `screenshots/run-p4v2-error-relayed.png`,
+`screenshots/run-p3v2-relayed-with-invented-claim.png`.
+
+- All six replies told the user the tool had no API key and that an admin
+  needs to add one, against one accurate relay in the first round.
+- Every run made exactly one tool call; in the first round q3 had called
+  `read_url` twice.
+- **p3v2 invented a fact.** It opened with "The Python Software Foundation did
+  not announce anything this week", which the model had no basis for: the
+  tool returned only the missing-key error. The rest of the reply relayed the
+  error correctly. Better wording did not stop the model adding its own
+  claim.
+
+## 6. Setting the key, updating the tool, and a rejected key
+
+All on the `host` profile, through the UI, with a deliberately fake key
+(`fake-key-...`, not a Tabstack key).
+
+- **Setting the key.** In Workspace > Tools, the Tabstack row has two buttons
+  labelled Valves in the accessibility tree; the gear icon opens the dialog.
+  Clicking **Default** next to Tabstack Api Key switched it to **Custom** and
+  showed a masked input with a show/hide eye; after typing the key and
+  clicking Save, `GET /api/v1/tools/id/tabstack/valves` returned it.
+  (`screenshots/install-06-valve-key-set.png`, where the key shows only as
+  dots.)
+- **Updating keeps the key.** A copy of the file with one extra comment line
+  was pasted over the saved tool and saved, then the real file was pasted back
+  and saved. The key was still stored after each save. Saving an update showed
+  no confirmation dialog (unlike creating the tool). Pasting a file identical
+  to the stored one leaves Save disabled.
+- **Run p6** (`llama3.1:8b`, built-ins off, fake key): "What is the latest
+  stable release of Node.js, and when did it come out?" The model called
+  `research` once. The tool reached the API and got a 401; status lines were
+  "Starting research", then "Research failed". The model replied that the tool
+  had rejected the API key and an Open WebUI admin needs to check the key in
+  the tool's Valves, then suggested the official Node.js website. The fake key
+  did not appear anywhere in the saved chat.
+- The key was then switched back to Default (empty), and the API confirmed no
+  key was stored.
+
+## 7. Still to do (needs credits)
 
 - Five research questions and three `read_url` calls with a working key, with
   outcomes as they happen.

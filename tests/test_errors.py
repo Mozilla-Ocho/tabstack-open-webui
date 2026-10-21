@@ -148,7 +148,7 @@ def test_unexpected_error_shows_only_the_class_name() -> None:
     exc = RuntimeError(f"Traceback (most recent call last): key={FAKE_KEY}")
     message = exception_message(exc, "research", secret=FAKE_KEY)
     assert message.startswith(
-        "Error: the Tabstack tool hit an unexpected problem (RuntimeError)."
+        "Error: The Tabstack tool hit an unexpected problem (RuntimeError)."
     )
     assert "Traceback" not in message
     assert FAKE_KEY not in message
@@ -159,13 +159,13 @@ def test_timeout_message_names_the_limit() -> None:
         TimeoutError(), "research", secret=None, timeout_seconds=300
     )
     assert message.startswith(
-        "Error: the research did not finish within 300 seconds and was stopped."
+        "Error: The research took longer than 300 seconds and was stopped."
     )
     page = exception_message(
         TimeoutError(), "read_url", secret=None, timeout_seconds=60
     )
     assert page.startswith(
-        "Error: the page did not finish within 60 seconds and was stopped."
+        "Error: Reading the page took longer than 60 seconds and was stopped."
     )
 
 
@@ -176,7 +176,9 @@ def test_every_message_is_plain(kind: FailureKind, operation: Operation) -> None
         kind, operation, detail="detail", timeout_seconds=10, idle_seconds=5
     )
     assert message.startswith("Error: ")
-    assert message.endswith("Tell the user this instead of answering from memory.")
+    assert "Tell the user exactly this." in message
+    if kind is not FailureKind.INVALID_URL:
+        assert message.endswith("Do not call this tool again for this question.")
     assert message.isascii()
     assert "Traceback" not in message
     assert "\n" not in message
@@ -195,6 +197,7 @@ def test_stalled_message_names_the_gap() -> None:
 def test_missing_key_message() -> None:
     message = failure_message(FailureKind.MISSING_KEY, "research")
     assert "no API key" in message
+    assert message.startswith("Error: The Tabstack tool is not set up yet")
     assert "Valves" in message
 
 
@@ -217,3 +220,12 @@ def test_clean_detail() -> None:
     assert long is not None
     assert len(long) == 200
     assert long.endswith("...")
+
+
+def test_invalid_url_message_allows_a_corrected_call() -> None:
+    message = failure_message(FailureKind.INVALID_URL, "read_url", detail="x")
+    assert "Do not call this tool again" not in message
+    assert message.endswith(
+        "Only call read_url again with a full address that starts with http:// "
+        "or https://."
+    )

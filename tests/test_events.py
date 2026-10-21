@@ -100,7 +100,7 @@ def test_error_fixture() -> None:
     assert isinstance(outcome, ResearchFailed)
     message = research_failure_message(outcome)
     assert message.startswith(
-        "Error: the research failed (during searching: All search providers failed)."
+        "Error: The research failed (during searching: All search providers failed)."
     )
     assert "search.js" not in message
     assert "SearchProviderError" not in message
@@ -113,7 +113,7 @@ def test_no_terminal_fixture() -> None:
     assert outcome == ResearchIncomplete(events_seen=8, last_event="writing:start")
     assert isinstance(outcome, ResearchIncomplete)
     assert research_failure_message(outcome).startswith(
-        "Error: the connection to Tabstack closed before the research finished"
+        "Error: The connection to Tabstack closed before the research finished"
     )
 
 
@@ -144,7 +144,7 @@ def test_error_event_with_unpopulated_error_field() -> None:
     assert outcome == ResearchFailed(message="Research failed", activity=None)
     assert isinstance(outcome, ResearchFailed)
     assert research_failure_message(outcome).startswith(
-        "Error: the research failed (Research failed)."
+        "Error: The research failed (Research failed)."
     )
 
 
@@ -153,7 +153,7 @@ def test_error_event_with_nothing_at_all() -> None:
     progress.feed({"event": "error", "data": {}})
     outcome = progress.result()
     assert isinstance(outcome, ResearchFailed)
-    assert research_failure_message(outcome).startswith("Error: the research failed.")
+    assert research_failure_message(outcome).startswith("Error: The research failed.")
 
 
 def test_events_after_a_terminal_event_are_ignored() -> None:

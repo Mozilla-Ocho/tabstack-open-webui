@@ -291,7 +291,7 @@ def test_research_stream_error() -> None:
     recorder = Recorder()
     result = run(make_tool(client).research("q", __event_emitter__=recorder))
     assert result.startswith(
-        "Error: the research failed (during searching: All search providers failed)."
+        "Error: The research failed (during searching: All search providers failed)."
     )
     assert recorder.statuses()[-1] == ("Research failed", True)
     assert recorder.citations() == []
@@ -303,7 +303,7 @@ def test_research_stream_closes_without_terminal_event() -> None:
     recorder = Recorder()
     result = run(make_tool(client).research("q", __event_emitter__=recorder))
     assert result.startswith(
-        "Error: the connection to Tabstack closed before the research"
+        "Error: The connection to Tabstack closed before the research"
     )
     assert recorder.statuses()[-1] == ("Research failed", True)
 
@@ -314,7 +314,7 @@ def test_research_connection_dropped_mid_stream() -> None:
     client = FakeClient(stream=FakeStream(events, fail_with=drop))
     result = run(make_tool(client).research("q"))
     assert result.startswith(
-        "Error: the connection to Tabstack closed before the research"
+        "Error: The connection to Tabstack closed before the research"
     )
 
 
@@ -327,7 +327,7 @@ def test_research_rejected_key_is_not_echoed() -> None:
     client = FakeClient(research_error=error)
     recorder = Recorder()
     result = run(make_tool(client).research("q", __event_emitter__=recorder))
-    assert result.startswith("Error: Tabstack rejected the API key.")
+    assert result.startswith("Error: Tabstack rejected the tool's API key.")
     assert KEY not in everything_sent(recorder, result)
     assert recorder.statuses() == [
         ("Starting research", False),
@@ -357,7 +357,7 @@ def test_research_total_time_limit() -> None:
     )
     recorder = Recorder()
     result = run(tool.research("q", __event_emitter__=recorder))
-    assert result.startswith("Error: the research did not finish within 0.12 seconds")
+    assert result.startswith("Error: The research took longer than 0.12 seconds")
     assert stream.yielded < len(stream.events)
     assert stream.closed
     assert recorder.statuses()[-1] == ("Research failed", True)
@@ -395,7 +395,7 @@ def test_research_empty_report() -> None:
     client = FakeClient(stream=FakeStream([EVENT_ADAPTER.validate_python(complete)]))
     result = run(make_tool(client).research("q"))
     assert result.startswith(
-        "Error: the research failed (Tabstack returned an empty answer)."
+        "Error: The research failed (Tabstack returned an empty answer)."
     )
 
 
@@ -404,7 +404,9 @@ def test_research_missing_key_makes_no_call() -> None:
     tool = make_tool(client, tabstack_api_key="   ")
     recorder = Recorder()
     result = run(tool.research("q", __event_emitter__=recorder))
-    assert result.startswith("Error: the Tabstack tool has no API key.")
+    assert result.startswith(
+        "Error: The Tabstack tool is not set up yet: it has no API key."
+    )
     assert client.created_with == []
     assert recorder.statuses() == [("Research failed", True)]
 
@@ -501,7 +503,9 @@ def test_read_url_refuses_non_http_urls(url: str, reason: str) -> None:
     client = FakeClient(page=load_json("extract_page.json"))
     recorder = Recorder()
     result = run(make_tool(client).read_url(url, __event_emitter__=recorder))
-    assert result.startswith("Error: read_url only accepts http and https addresses.")
+    assert result.startswith(
+        "Error: That address cannot be read: only http and https pages work."
+    )
     assert reason in result
     assert client.created_with == []
     assert recorder.statuses() == [("Could not read the page", True)]
@@ -547,7 +551,9 @@ def test_read_url_internal_address_refused_by_tabstack() -> None:
 def test_read_url_missing_key() -> None:
     client = FakeClient(page=load_json("extract_page.json"))
     result = run(make_tool(client, tabstack_api_key="").read_url("https://example.com"))
-    assert result.startswith("Error: the Tabstack tool has no API key.")
+    assert result.startswith(
+        "Error: The Tabstack tool is not set up yet: it has no API key."
+    )
     assert client.created_with == []
 
 
@@ -557,7 +563,7 @@ def test_read_url_timeout() -> None:
         make_tool(client, read_url_timeout_seconds=15).read_url("https://example.com")
     )
     assert result.startswith(
-        "Error: Tabstack sent nothing for 15 seconds, so the page was stopped."
+        "Error: Tabstack sent nothing for 15 seconds, so reading the page was stopped."
     )
 
 

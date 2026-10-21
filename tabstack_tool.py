@@ -654,7 +654,14 @@ def classify_exception(
     return FailureKind.UNEXPECTED
 
 
-_RELAY = " Tell the user this instead of answering from memory."
+# Small local models tend to paraphrase an error into "I could not find that"
+# and sometimes call the tool again. So each message is one sentence written
+# for the user, followed by an instruction the model can follow literally.
+_RELAY = " Tell the user exactly this. Do not call this tool again for this question."
+_RELAY_URL = (
+    " Tell the user exactly this. Only call read_url again with a full address "
+    "that starts with http:// or https://."
+)
 
 
 def failure_message(
@@ -667,66 +674,67 @@ def failure_message(
 ) -> str:
     """Return a plain chat message for a failure. Never includes a stack trace."""
     suffix = f" ({detail})" if detail else ""
-    what = "the research" if operation == "research" else "the page"
+    what = "The research" if operation == "research" else "Reading the page"
     if kind is FailureKind.MISSING_KEY:
         text = (
-            "Error: the Tabstack tool has no API key. An Open WebUI admin needs to "
-            "add one in the tool's Valves."
+            "The Tabstack tool is not set up yet: it has no API key. An Open WebUI "
+            "admin needs to add one in the tool's Valves."
         )
     elif kind is FailureKind.REJECTED_KEY:
         text = (
-            "Error: Tabstack rejected the API key. An Open WebUI admin needs to check "
+            "Tabstack rejected the tool's API key. An Open WebUI admin needs to check "
             "the key in the tool's Valves."
         )
     elif kind is FailureKind.NO_PERMISSION:
-        text = (
-            f"Error: the Tabstack API key is not allowed to make this request{suffix}."
-        )
+        text = f"The Tabstack API key is not allowed to make this request{suffix}."
     elif kind is FailureKind.OUT_OF_CREDITS:
         text = (
-            "Error: Tabstack declined the request because the account is out of "
-            "credits."
+            "The Tabstack account behind this tool is out of credits, so the request "
+            "was declined."
         )
     elif kind is FailureKind.RATE_LIMITED:
-        text = "Error: Tabstack is rate limiting this account. Try again in a minute."
+        text = (
+            "Tabstack is limiting how often this account can make requests. Try "
+            "again in a minute."
+        )
     elif kind is FailureKind.TIMEOUT:
         limit = (
-            f" within {timeout_seconds:g} seconds" if timeout_seconds else " in time"
+            f" longer than {timeout_seconds:g} seconds"
+            if timeout_seconds
+            else " too long"
         )
         hint = (
-            " Try a narrower question, or ask an admin to raise the time limit."
+            " A narrower question may finish sooner, or an admin can raise the limit."
             if operation == "research"
             else ""
         )
-        text = f"Error: {what} did not finish{limit} and was stopped.{hint}"
+        text = f"{what} took{limit} and was stopped.{hint}"
     elif kind is FailureKind.STALLED:
         gap = f"for {idle_seconds:g} seconds" if idle_seconds else "for too long"
-        text = f"Error: Tabstack sent nothing {gap}, so {what} was stopped."
+        text = f"Tabstack sent nothing {gap}, so {what.lower()} was stopped."
     elif kind is FailureKind.CONNECTION:
-        text = (
-            "Error: could not reach Tabstack. Check the Open WebUI server's internet "
-            "connection."
-        )
+        text = "The Tabstack tool could not reach Tabstack from the Open WebUI server."
     elif kind is FailureKind.SERVICE_ERROR:
-        text = f"Error: Tabstack returned a server error{suffix}."
+        text = f"Tabstack returned a server error{suffix}."
     elif kind is FailureKind.BAD_REQUEST:
-        text = f"Error: Tabstack rejected the request as invalid{suffix}."
+        text = f"Tabstack rejected the request as invalid{suffix}."
     elif kind is FailureKind.STREAM_ERROR:
-        text = f"Error: the research failed{suffix}."
+        text = f"The research failed{suffix}."
     elif kind is FailureKind.STREAM_INCOMPLETE:
         text = (
-            "Error: the connection to Tabstack closed before the research finished, "
-            "so there is no answer to show."
+            "The connection to Tabstack closed before the research finished, so "
+            "there is no answer."
         )
     elif kind is FailureKind.UNREADABLE_PAGE:
-        text = f"Error: Tabstack could not read that page{suffix}."
+        text = f"Tabstack could not read that page{suffix}."
     elif kind is FailureKind.INVALID_URL:
-        text = "Error: read_url only accepts http and https addresses."
+        text = "That address cannot be read: only http and https pages work."
         if detail:
             text = f"{text} {detail}"
+        return f"Error: {text}{_RELAY_URL}"
     else:
-        text = f"Error: the Tabstack tool hit an unexpected problem{suffix}."
-    return text + _RELAY
+        text = f"The Tabstack tool hit an unexpected problem{suffix}."
+    return f"Error: {text}{_RELAY}"
 
 
 def research_failure_message(outcome: ResearchFailed | ResearchIncomplete) -> str:
