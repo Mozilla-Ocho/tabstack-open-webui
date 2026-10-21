@@ -43,9 +43,9 @@ def status_error(
         (status_error(tabstack.InternalServerError, 500), "read_url", FailureKind.UNREADABLE_PAGE),
         (status_error(tabstack.InternalServerError, 503), "research", FailureKind.SERVICE_ERROR),
         (status_error(tabstack.APIStatusError, 418), "research", FailureKind.SERVICE_ERROR),
-        (tabstack.APITimeoutError(request=REQUEST), "research", FailureKind.TIMEOUT),
+        (tabstack.APITimeoutError(request=REQUEST), "research", FailureKind.STALLED),
         (TimeoutError(), "research", FailureKind.TIMEOUT),
-        (httpx.ReadTimeout("slow", request=REQUEST), "research", FailureKind.TIMEOUT),
+        (httpx.ReadTimeout("slow", request=REQUEST), "research", FailureKind.STALLED),
         (tabstack.APIConnectionError(request=REQUEST), "read_url", FailureKind.CONNECTION),
         (httpx.ConnectError("refused", request=REQUEST), "research", FailureKind.CONNECTION),
         (RuntimeError("anything"), "research", FailureKind.UNEXPECTED),
@@ -104,12 +104,20 @@ def test_timeout_message_names_the_limit() -> None:
 @pytest.mark.parametrize("kind", list(FailureKind))
 @pytest.mark.parametrize("operation", ["research", "read_url"])
 def test_every_message_is_plain(kind: FailureKind, operation: Operation) -> None:
-    message = failure_message(kind, operation, detail="detail", timeout_seconds=10)
+    message = failure_message(kind, operation, detail="detail", timeout_seconds=10, idle_seconds=5)
     assert message.startswith("Error: ")
     assert message.endswith("Tell the user this instead of answering from memory.")
     assert message.isascii()
     assert "Traceback" not in message
     assert "\n" not in message
+
+
+def test_stalled_message_names_the_gap() -> None:
+    exc = httpx.ReadTimeout("slow", request=REQUEST)
+    message = exception_message(exc, "research", secret=None, timeout_seconds=300, idle_seconds=120)
+    assert message.startswith(
+        "Error: Tabstack sent nothing for 120 seconds, so the research was stopped."
+    )
 
 
 def test_missing_key_message() -> None:

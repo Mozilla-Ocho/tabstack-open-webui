@@ -8,8 +8,10 @@ requirements: tabstack==2.8.5
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
@@ -17,6 +19,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 
 import httpx
 import tabstack
+from pydantic import BaseModel, Field
 
 # =============================================================================
 # Pure section
@@ -532,6 +535,7 @@ class FailureKind(Enum):
     OUT_OF_CREDITS = "out_of_credits"
     RATE_LIMITED = "rate_limited"
     TIMEOUT = "timeout"
+    STALLED = "stalled"
     CONNECTION = "connection"
     SERVICE_ERROR = "service_error"
     BAD_REQUEST = "bad_request"
@@ -585,7 +589,11 @@ def classify_exception(
         return FailureKind.UNREADABLE_PAGE if operation == "read_url" else FailureKind.SERVICE_ERROR
     if isinstance(exc, tabstack.APIStatusError):
         return FailureKind.OUT_OF_CREDITS if exc.status_code == 402 else FailureKind.SERVICE_ERROR
-    if isinstance(exc, tabstack.APITimeoutError | TimeoutError | httpx.TimeoutException):
+    if isinstance(exc, tabstack.APITimeoutError | httpx.TimeoutException):
+        # The SDK timeout bounds the wait for each chunk, not the whole call.
+        return FailureKind.STALLED
+    if isinstance(exc, TimeoutError):
+        # Raised by the tool's own total time limit.
         return FailureKind.TIMEOUT
     if isinstance(exc, tabstack.APIConnectionError | httpx.TransportError):
         # Once events have arrived, a dropped connection means the stream closed early.
@@ -602,6 +610,7 @@ def failure_message(
     *,
     detail: str | None = None,
     timeout_seconds: float | None = None,
+    idle_seconds: float | None = None,
 ) -> str:
     """Return a plain chat message for a failure. Never includes a stack trace."""
     suffix = f" ({detail})" if detail else ""
@@ -630,6 +639,9 @@ def failure_message(
             else ""
         )
         text = f"Error: {what} did not finish{limit} and was stopped.{hint}"
+    elif kind is FailureKind.STALLED:
+        gap = f"for {idle_seconds:g} seconds" if idle_seconds else "for too long"
+        text = f"Error: Tabstack sent nothing {gap}, so {what} was stopped."
     elif kind is FailureKind.CONNECTION:
         text = "Error: could not reach Tabstack. Check the Open WebUI server's internet connection."
     elif kind is FailureKind.SERVICE_ERROR:
@@ -669,6 +681,7 @@ def exception_message(
     secret: str | None,
     stream_started: bool = False,
     timeout_seconds: float | None = None,
+    idle_seconds: float | None = None,
 ) -> str:
     """Return the chat message for an exception, with any server detail cleaned and redacted."""
     kind = classify_exception(exc, operation, stream_started=stream_started)
@@ -677,9 +690,236 @@ def exception_message(
         detail: str | None = type(exc).__name__
     else:
         detail = clean_detail(error_body_detail(exc), secret)
-    return failure_message(kind, operation, detail=detail, timeout_seconds=timeout_seconds)
+    return failure_message(
+        kind,
+        operation,
+        detail=detail,
+        timeout_seconds=timeout_seconds,
+        idle_seconds=idle_seconds,
+    )
 
 
 # =============================================================================
 # Open WebUI wrapper
 # =============================================================================
+
+EventEmitter = Callable[[dict[str, object]], Awaitable[None]]
+ClientFactory = Callable[[str, float], tabstack.AsyncTabstack]
+
+
+def _default_client(api_key: str, timeout: float) -> tabstack.AsyncTabstack:
+    """Build a Tabstack client for one call."""
+    # No retries are added on top of the SDK. Its default (two retries on 408,
+    # 409, 429, 5xx and connection failures, before a stream opens) is left as
+    # it is, and the tool never re-runs a call itself: repeating a Research call
+    # repeats the work and the billing, so a failure is reported to the user
+    # instead. `timeout` is the longest wait for any one chunk of the response.
+    return tabstack.AsyncTabstack(api_key=api_key, timeout=timeout)
+
+
+def _event_dict(event: object) -> Mapping[str, object]:
+    """Return a streamed event in wire format, whether the SDK typed it or not."""
+    to_dict = getattr(event, "to_dict", None)
+    if callable(to_dict):
+        return _as_map(to_dict())
+    # The SDK passes event names it does not know through as plain dicts.
+    return _as_map(event)
+
+
+class _Status:
+    """Send status and citation events to the chat, ignoring a missing or broken emitter."""
+
+    def __init__(self, emit: EventEmitter | None) -> None:
+        """Wrap the emitter Open WebUI injected, which may be None."""
+        self._emit = emit
+
+    async def send(self, event: dict[str, object]) -> None:
+        """Send one event. A failure to display progress must not fail the call."""
+        if self._emit is None:
+            return
+        with contextlib.suppress(Exception):
+            await self._emit(event)
+
+    async def update(self, description: str) -> None:
+        """Show an in-progress status line."""
+        await self.send({"type": "status", "data": {"description": description, "done": False}})
+
+    async def done(self, description: str) -> None:
+        """Show the final status line, replacing the in-progress one."""
+        await self.send({"type": "status", "data": {"description": description, "done": True}})
+
+
+class Tools:
+    """Tabstack Research and Extract for Open WebUI."""
+
+    class Valves(BaseModel):
+        """Admin settings, set in Workspace > Tools > Tabstack > Valves."""
+
+        tabstack_api_key: str = Field(
+            default="",
+            description="Your Tabstack API key. Stored by Open WebUI; never shown in chat.",
+            json_schema_extra={"input": {"type": "password"}},
+        )
+        research_mode: Literal["fast", "balanced"] = Field(
+            default="fast",
+            description="Research depth. 'balanced' reads more sources and needs a paid plan.",
+        )
+        research_timeout_seconds: int = Field(
+            default=300,
+            ge=10,
+            le=3600,
+            description="Stop a Research call that has not finished after this many seconds.",
+        )
+        research_idle_timeout_seconds: int = Field(
+            default=120,
+            ge=10,
+            le=900,
+            description="Stop a Research call if Tabstack sends nothing for this many seconds.",
+        )
+        read_url_timeout_seconds: int = Field(
+            default=60,
+            ge=5,
+            le=600,
+            description="Stop reading a page after this many seconds.",
+        )
+        read_url_effort: Literal["min", "standard", "max"] = Field(
+            default="standard",
+            description="Fetch effort. 'max' renders JavaScript-heavy pages but is slower.",
+        )
+        read_url_max_chars: int = Field(
+            default=20000,
+            ge=1000,
+            le=500000,
+            description="Longest page text passed to the model, in characters.",
+        )
+
+    def __init__(self) -> None:
+        """Set up valves; Open WebUI replaces them with the saved values on each call."""
+        self.valves = self.Valves()
+        # Seam for tests. Underscore names are not exposed to the model.
+        self._client_factory: ClientFactory = _default_client
+
+    async def research(
+        self,
+        question: str,
+        __event_emitter__: EventEmitter | None = None,
+    ) -> str:
+        """
+        Answer a question that needs current information from the web. Returns a cited
+        answer from live sources with numbered [n] markers and a source list. Use it for
+        recent events, releases, prices, or anything that may have changed since your
+        training data. It can take a minute or more.
+
+        :param question: The full question in plain language, including any names,
+            places or dates it depends on.
+        """
+        valves = self.valves
+        status = _Status(__event_emitter__)
+        key = valves.tabstack_api_key.strip()
+        if not key:
+            await status.done(failed_status("research"))
+            return failure_message(FailureKind.MISSING_KEY, "research")
+        query = question.strip()
+        if not query:
+            await status.done(failed_status("research"))
+            return failure_message(
+                FailureKind.BAD_REQUEST, "research", detail="the question was empty"
+            )
+
+        total = valves.research_timeout_seconds
+        idle = valves.research_idle_timeout_seconds
+        progress = ResearchProgress()
+        await status.update("Starting research")
+        try:
+            async with asyncio.timeout(total), self._client_factory(key, idle) as client:
+                stream = await client.agent.research(query=query, mode=valves.research_mode)
+                async with stream:
+                    async for event in stream:
+                        line = progress.feed(_event_dict(event))
+                        if line is not None:
+                            await status.update(line)
+                        if progress.outcome is not None:
+                            break
+        except asyncio.CancelledError:
+            await status.done("Research stopped")
+            raise
+        except Exception as exc:
+            await status.done(failed_status("research"))
+            return exception_message(
+                exc,
+                "research",
+                secret=key,
+                stream_started=progress.events_seen > 0,
+                timeout_seconds=total,
+                idle_seconds=idle,
+            )
+
+        outcome = progress.result()
+        if not isinstance(outcome, ResearchCompleted):
+            await status.done(failed_status("research"))
+            return research_failure_message(outcome)
+        if not outcome.report:
+            await status.done(failed_status("research"))
+            return failure_message(
+                FailureKind.STREAM_ERROR, "research", detail="Tabstack returned an empty answer"
+            )
+
+        answer = format_research_answer(outcome.report, outcome.sources)
+        for source in answer.sources:
+            await status.send(citation_event(source))
+        await status.done(finished_status(len(answer.sources)))
+        return answer.text
+
+    async def read_url(
+        self,
+        url: str,
+        __event_emitter__: EventEmitter | None = None,
+    ) -> str:
+        """
+        Read one web page and return its text as clean Markdown. Use it when the user
+        gives a link or asks about a specific page. Only http and https addresses work.
+
+        :param url: The full address of the page, starting with http:// or https://.
+        """
+        valves = self.valves
+        status = _Status(__event_emitter__)
+        target = clean_url(url)
+        problem = url_problem(target)
+        if problem is not None:
+            await status.done(failed_status("read_url"))
+            return failure_message(FailureKind.INVALID_URL, "read_url", detail=problem)
+        key = valves.tabstack_api_key.strip()
+        if not key:
+            await status.done(failed_status("read_url"))
+            return failure_message(FailureKind.MISSING_KEY, "read_url")
+
+        host = urlsplit(target).hostname or target
+        limit = valves.read_url_timeout_seconds
+        await status.update(f"Reading {host}")
+        try:
+            async with asyncio.timeout(limit), self._client_factory(key, limit) as client:
+                page = await client.extract.markdown(
+                    url=target, metadata=True, effort=valves.read_url_effort
+                )
+        except asyncio.CancelledError:
+            await status.done("Stopped reading the page")
+            raise
+        except Exception as exc:
+            await status.done(failed_status("read_url"))
+            return exception_message(
+                exc, "read_url", secret=key, timeout_seconds=limit, idle_seconds=limit
+            )
+
+        if not page.content.strip():
+            await status.done(failed_status("read_url"))
+            return failure_message(
+                FailureKind.UNREADABLE_PAGE, "read_url", detail="the page had no readable text"
+            )
+        title = _as_str(page.metadata.title) if page.metadata else None
+        page_url = _as_str(page.url) or target
+        max_chars = valves.read_url_max_chars
+        await status.send(
+            page_citation_event(page_url, title, trim_markdown(page.content, max_chars).text)
+        )
+        await status.done(f"Read {host}")
+        return format_page(page_url, title, page.content, max_chars)

@@ -46,6 +46,15 @@ Paths below are relative to those checkouts: `sdk/` is the unpacked wheel
   Docs, "Method Docstrings"; source `get_tools` (`re.split(':(param|return)', ...)`).
 - Type hints on arguments drive the JSON schema. Parameters starting with `__`
   are stripped from the schema. Docs, "Type Hints"; source `get_tools`.
+- Trap found while testing, SOURCE ONLY: `convert_function_to_pydantic_model`
+  (`utils/tools.py`) passes a parameter to pydantic's `create_model` as a
+  `Field(...)` when the docstring has a `:param name:` line for it, and as a
+  bare `(type, default)` otherwise. Pydantic 2.13.4 silently drops bare fields
+  whose names start with an underscore, but raises `NameError: Fields must not
+  use names with leading underscores` for a `Field`. So a docstring must never
+  contain `:param __event_emitter__:` or any other injected argument. Checked
+  by running `create_model` both ways under pydantic 2.13.4;
+  `tests/test_tool.py` guards it.
 - Return value: `str`, `dict` or `list`. A `dict` is JSON-encoded for the model.
   Docs, "Return Values".
 - The `Tools` instance is cached and reused across requests and users; valves
