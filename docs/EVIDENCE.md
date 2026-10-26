@@ -452,7 +452,25 @@ the docstring did not change that. With only memory, knowledge and files on,
 both models called it in all 4 runs. Which of the 14 other categories matters
 was not narrowed down.
 
-### 11.3 Clean-up
+### 11.3 UI paths checked by hand
+
+Checked in the UI with Playwright later the same day, without saving
+anything (the model's settings read back unchanged through the API):
+
+- The user valve is under **Controls** (the sliders icon at the top right of
+  a chat) > **Valves**, with a first list set to **Tools** and a second list
+  offering **Tabstack**. The panel is titled "Controls", not "Chat
+  Controls", so the tool's message was changed to name it that way. The key
+  field is masked, with an eye icon to reveal it.
+  (`screenshots/user-valve-01-controls.png`)
+- **Admin Panel > Users > Groups** has a **Default permissions** entry.
+- In the model editor, a **Builtin Tools** row appears below **Default
+  Features** only while the **Builtin Tools** capability is on. Clicking it
+  shows the category switches, including **Memory**, **Knowledge Base** and
+  **Files**. (`screenshots/model-04-builtin-categories.png`, taken with the
+  capability switched on in the page but not saved)
+
+### 11.4 Clean-up
 
 After the runs, the key was cleared from the user valve (the admin valve was
 already empty), `require_user_key` was switched back off, and both models were

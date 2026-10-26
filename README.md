@@ -44,8 +44,10 @@ the Open WebUI image yourself.
 | `read_url_max_chars` | 20000 | Longest page text passed to the model. |
 | `require_user_key` | off | Only use each user's own key (below); never the shared key. |
 
-Each user can also set their own key under **Chat Controls > Valves >
-Tabstack** (a user valve, masked in the UI). When set, that user's calls use
+Each user can also set their own key in a chat under **Controls** (the
+sliders icon at the top right) **> Valves > Tools > Tabstack** (a user valve,
+masked in the UI). This needs the Chat Controls and Valves user permissions,
+which are on by default. When set, that user's calls use
 and are billed to their key instead of the shared one. Error messages about a
 rejected key or an empty account say whose key it was.
 

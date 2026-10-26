@@ -69,8 +69,14 @@ The other settings can stay on their defaults:
 | Require User Key | off | Only use each user's own key; never the key above. |
 
 **Per-user keys (optional).** Each user can add their own Tabstack key in a
-chat under **Chat Controls > Valves > Tabstack**. Their calls then use, and
-are billed to, their key. To make that required, switch **Require User Key**
+chat: open **Controls** (the sliders icon at the top right), then **Valves**,
+leave the first list on **Tools**, and pick **Tabstack**. Their calls then
+use, and are billed to, their key. Users need the **Chat Controls** and
+**Valves** permissions for this (in **Admin Panel > Users > Groups > Default
+permissions**; both are on by default).
+
+![The Controls panel with the Tabstack user valve](screenshots/user-valve-01-controls.png)
+ To make that required, switch **Require User Key**
 on; users without a key of their own then get a message telling them where to
 add one. You can leave **Tabstack Api Key** empty in that case.
 
@@ -180,10 +186,14 @@ is a small number of runs on two models, not a guarantee.
 memories, knowledge bases and chat files working:
 
 1. Open the model in **Admin Panel > Settings > Models**, as in step 4.
-2. Leave **Builtin Tools** on in the **Capabilities** row.
-3. In the **Builtin Tools** row below it, switch off every category except
-   **Memory**, **Knowledge Base** and **Files**.
+2. Click the **Capabilities** row and leave **Builtin Tools** on. A separate
+   **Builtin Tools** row appears below **Default Features** only while it is
+   on.
+3. Click that **Builtin Tools** row to show its switches, and switch off every
+   category except **Memory**, **Knowledge Base** and **Files**.
 4. Click **Save & Update**.
+
+![The Builtin Tools categories, all still on](screenshots/model-04-builtin-categories.png)
 
 Which of the other categories causes the problem was not narrowed down, so
 switching a category back on may stop the model calling the tool again.

@@ -450,7 +450,8 @@ def test_required_user_key_refuses_the_shared_key() -> None:
     tool = make_tool(client, require_user_key=True)
     result = run(tool.research("q", __user__={"id": "u1"}))
     assert result.startswith("Error: The Tabstack tool needs your own API key")
-    assert "Chat Controls > Valves > Tabstack" in result
+    assert "Controls (the sliders icon" in result
+    assert "> Valves > Tools > Tabstack." in result
     assert client.created_with == []
 
 
@@ -698,7 +699,10 @@ def test_second_research_call_in_one_reply_is_refused() -> None:
     assert "Sources:" in first
     recorder = Recorder()
     second = run(tool.research("q", __event_emitter__=recorder, __message_id__="m1"))
-    assert second.startswith("Error: research already ran 1 time for this reply")
+    assert second.startswith(
+        "Error: research already ran 1 time for this reply, so it was not run again "
+        'for "q" and nothing was charged.'
+    )
     assert len(client.agent.calls) == 1
     assert recorder.statuses() == [("Research not run again", True)]
 

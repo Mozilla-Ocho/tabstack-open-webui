@@ -962,11 +962,24 @@ def classify_exception(
 # Small local models tend to paraphrase an error into "I could not find that"
 # and sometimes call the tool again. So each message is one sentence written
 # for the user, followed by an instruction the model can follow literally.
-_USER_VALVES = "Chat Controls > Valves > Tabstack"
-_RELAY = " Tell the user exactly this. Do not call this tool again for this question."
+# The panel and labels as Open WebUI v0.12.3 shows them.
+_USER_VALVES = " > ".join(
+    (
+        "Controls (the sliders icon at the top right of a chat)",
+        "Valves",
+        "Tools",
+        "Tabstack",
+    )
+)
+# In testing, a model relaying a missing-key message also invented a command
+# for the user to run, so the relay line rules out additions.
+_RELAY = (
+    " Tell the user exactly this and add nothing about how to fix it. Do not call "
+    "this tool again for this question."
+)
 _RELAY_URL = (
-    " Tell the user exactly this. Only call read_url again with a full address "
-    "that starts with http:// or https://."
+    " Tell the user exactly this and add nothing about how to fix it. Only call "
+    "read_url again with a full address that starts with http:// or https://."
 )
 
 
@@ -1046,14 +1059,19 @@ def failure_message(
     elif kind is FailureKind.UNREADABLE_PAGE:
         text = f"Tabstack could not read that page{suffix}."
     elif kind is FailureKind.CALL_LIMIT:
+        # In testing, a model given this answered the first question and said
+        # nothing about the one that was refused, so name it and ask for that.
         times = f" {_plural(call_limit, 'time')}" if call_limit else ""
+        target = clean_detail(detail, limit=150)
+        refused = f' for "{target.replace(chr(34), chr(39))}"' if target else ""
         text = (
             f"{operation} already ran{times} for this reply, so it was not run "
-            "again and nothing was charged."
+            f"again{refused} and nothing was charged."
         )
         return (
-            f"Error: {text} Answer the user from the earlier result. Do not call "
-            "this tool again for this question."
+            f"Error: {text} Answer the user from the earlier result, and tell them "
+            "plainly that this part was not looked up. Do not call this tool again "
+            "for this question."
         )
     elif kind is FailureKind.INVALID_URL:
         text = "That address cannot be read: only http and https pages work."
@@ -1226,7 +1244,7 @@ class Tools:
         )
 
     class UserValves(BaseModel):
-        """Per-user settings, set in Chat Controls > Valves > Tabstack."""
+        """Per-user settings, set in a chat under Controls > Valves."""
 
         tabstack_api_key: str = Field(
             default="",
@@ -1324,7 +1342,9 @@ class Tools:
         reply = self._reply_key(__message_id__, __request__)
         if reply and not self._calls.take(f"research:{reply}", limit):
             await status.done("Research not run again")
-            return failure_message(FailureKind.CALL_LIMIT, "research", call_limit=limit)
+            return failure_message(
+                FailureKind.CALL_LIMIT, "research", detail=query, call_limit=limit
+            )
 
         total = valves.research_timeout_seconds
         idle = valves.research_idle_timeout_seconds
@@ -1416,7 +1436,9 @@ class Tools:
         reply = self._reply_key(__message_id__, __request__)
         if reply and not self._calls.take(f"read_url:{reply}", calls):
             await status.done("Page not read again")
-            return failure_message(FailureKind.CALL_LIMIT, "read_url", call_limit=calls)
+            return failure_message(
+                FailureKind.CALL_LIMIT, "read_url", detail=target, call_limit=calls
+            )
 
         host = urlsplit(target).hostname or target
         limit = valves.read_url_timeout_seconds

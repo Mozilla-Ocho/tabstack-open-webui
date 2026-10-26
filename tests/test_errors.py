@@ -178,7 +178,9 @@ def test_every_message_is_plain(kind: FailureKind, operation: Operation) -> None
     assert message.startswith("Error: ")
     if kind is not FailureKind.CALL_LIMIT:
         # The call-limit message is for the model, not something to relay.
-        assert "Tell the user exactly this." in message
+        assert (
+            "Tell the user exactly this and add nothing about how to fix it." in message
+        )
     if kind is not FailureKind.INVALID_URL:
         assert message.endswith("Do not call this tool again for this question.")
     assert message.isascii()
@@ -201,7 +203,8 @@ def test_missing_key_message() -> None:
     assert "no API key" in message
     assert message.startswith("Error: The Tabstack tool is not set up yet")
     assert "Valves" in message
-    assert "Chat Controls > Valves > Tabstack" in message
+    assert "Controls (the sliders icon" in message
+    assert "> Valves > Tools > Tabstack." in message
 
 
 def test_messages_name_whose_key_failed() -> None:
@@ -251,7 +254,31 @@ def test_call_limit_message() -> None:
     message = failure_message(FailureKind.CALL_LIMIT, "research", call_limit=1)
     assert message == (
         "Error: research already ran 1 time for this reply, so it was not run again "
-        "and nothing was charged. Answer the user from the earlier result. Do not "
-        "call this tool again for this question."
+        "and nothing was charged. Answer the user from the earlier result, and tell "
+        "them plainly that this part was not looked up. Do not call this tool again "
+        "for this question."
     )
     assert "ran for this reply" in failure_message(FailureKind.CALL_LIMIT, "read_url")
+
+
+def test_call_limit_message_names_what_was_refused() -> None:
+    message = failure_message(
+        FailureKind.CALL_LIMIT,
+        "research",
+        detail='Who won the  "most recent"\nGrand Prix?',
+        call_limit=1,
+    )
+    assert message.startswith(
+        "Error: research already ran 1 time for this reply, so it was not run again "
+        "for \"Who won the 'most recent' Grand Prix?\" and nothing was charged."
+    )
+    long = failure_message(FailureKind.CALL_LIMIT, "read_url", detail="x" * 400)
+    assert '"' + "x" * 147 + '..."' in long
+
+
+def test_relayed_messages_rule_out_additions() -> None:
+    for kind in (FailureKind.MISSING_KEY, FailureKind.INVALID_URL):
+        message = failure_message(kind, "read_url")
+        assert "Tell the user exactly this and add nothing about how to fix it." in (
+            message
+        )

@@ -91,7 +91,8 @@ Paths below are relative to those checkouts: `sdk/` is the unpacked wheel
   (`__user__['valves'] = module.UserValves(...)`). Saved in the user's
   settings under `tools.valves.<tool id>` and decrypted with the same
   `decrypt_valves` (`models/tools.py`, `get_user_valves_by_id_and_user_id`).
-  The UI is Chat Controls > Valves, which renders with the same `Valves.svelte`
+  The UI is Controls > Valves > Tools > Tabstack (seen 2026-10-26), which
+  renders with the same `Valves.svelte`
   component and password masking as admin valves
   (`src/lib/components/chat/Controls/Valves.svelte`). Any user with read
   access to the tool can update their own
