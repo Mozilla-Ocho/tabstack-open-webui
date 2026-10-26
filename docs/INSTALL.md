@@ -66,6 +66,13 @@ The other settings can stay on their defaults:
 | Max Research Calls Per Reply | 1 | Research calls allowed in one reply. Later calls are refused without contacting Tabstack. |
 | Max Read Url Calls Per Reply | 3 | The same for reading pages. |
 | Read Url Max Chars | 20000 | Longest page text passed to the model. Longer pages are trimmed, with a note saying how much was kept. |
+| Require User Key | off | Only use each user's own key; never the key above. |
+
+**Per-user keys (optional).** Each user can add their own Tabstack key in a
+chat under **Chat Controls > Valves > Tabstack**. Their calls then use, and
+are billed to, their key. To make that required, switch **Require User Key**
+on; users without a key of their own then get a message telling them where to
+add one. You can leave **Tabstack Api Key** empty in that case.
 
 About where the key is kept:
 
@@ -162,11 +169,27 @@ message box when tools are on for the chat. If it is missing, repeat step 4.
 **Open WebUI's built-in tools are crowding it out.** By default Open WebUI
 offers the model about 36 tools of its own (memory, notes, knowledge bases,
 chat search, calendar, automations and more) alongside this one. In testing,
-`llama3.1:8b` and `qwen3:8b` did not call the Tabstack tool in any of four
-runs while those were on, and called it in all 24 runs once they were off
-(see [EVIDENCE.md](EVIDENCE.md), sections 5 to 8). That is a small
-number of runs on two models, not a guarantee. To switch them off for one
-model:
+`llama3.1:8b` and `qwen3:8b` did not call the Tabstack tool in any of eight
+runs while all of those were on. They called it in all 4 runs with only
+**Memory**, **Knowledge Base** and **Files** left on, and in all 24 runs with
+built-in tools switched off entirely (see [EVIDENCE.md](EVIDENCE.md),
+sections 5 to 8 and 11). Rewording the tool's description did not help. That
+is a small number of runs on two models, not a guarantee.
+
+**Keep only the built-in tools you use (try this first).** This keeps
+memories, knowledge bases and chat files working:
+
+1. Open the model in **Admin Panel > Settings > Models**, as in step 4.
+2. Leave **Builtin Tools** on in the **Capabilities** row.
+3. In the **Builtin Tools** row below it, switch off every category except
+   **Memory**, **Knowledge Base** and **Files**.
+4. Click **Save & Update**.
+
+Which of the other categories causes the problem was not narrowed down, so
+switching a category back on may stop the model calling the tool again.
+
+**Switch built-in tools off entirely.** If the model still does not call the
+tool:
 
 1. Open the model in **Admin Panel > Settings > Models**, as in step 4.
 2. Click the **Capabilities** row and switch **Builtin Tools** off.
@@ -174,11 +197,9 @@ model:
 
 ![The model's Capabilities, with the Builtin Tools switch](screenshots/model-03-capabilities.png)
 
-The trade-off: that model can no longer use Open WebUI's built-in tools, such
-as saving memories, reading notes or searching your knowledge bases. You can
-instead leave **Builtin Tools** on and switch off individual categories in the
-**Builtin Tools** row below it, but the runs above only tested switching the
-whole capability off.
+The trade-off: that model can no longer use any of Open WebUI's built-in
+tools, such as saving memories, reading notes or searching your knowledge
+bases.
 
 **Open WebUI's own web search is on.** If an admin has enabled web search, the
 model is also offered Open WebUI's `search_web` and `fetch_url`, which do

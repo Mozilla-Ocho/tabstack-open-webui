@@ -15,7 +15,7 @@ import re
 import unicodedata
 import weakref
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Literal, cast
 from urllib.parse import parse_qsl, urlencode, urlsplit
@@ -131,6 +131,7 @@ class NumberedSource:
     summary: str | None
     claims: tuple[str, ...]
     merged_urls: tuple[str, ...] = ()
+    already_shown: bool = False
 
 
 @dataclass(frozen=True)
@@ -247,6 +248,34 @@ def dedupe_sources(
     return tuple(numbered), mapping, tuple(merges)
 
 
+def place_after(
+    sources: Sequence[NumberedSource], shown: Sequence[str]
+) -> tuple[tuple[NumberedSource, ...], dict[int, int]]:
+    """Number sources after those already on the message; repeats keep their number.
+
+    Open WebUI numbers a message's citation chips by the order its sources
+    arrived, so a second call in one reply has to continue from there.
+    """
+    positions: dict[str, int] = {}
+    for number, url in enumerate(shown, start=1):
+        positions.setdefault(url_identity(url), number)
+    next_number = len(shown) + 1
+    placed: list[NumberedSource] = []
+    renumbered: dict[int, int] = {}
+    for source in sources:
+        existing = positions.get(url_identity(source.url))
+        if existing is None:
+            number, next_number = next_number, next_number + 1
+        else:
+            number = existing
+        renumbered[source.number] = number
+        placed.append(
+            replace(source, number=number, already_shown=existing is not None)
+        )
+    placed.sort(key=lambda source: source.number)
+    return tuple(placed), renumbered
+
+
 _MARKER_RUN = re.compile(r"(?:\[\d+\])+(?!\()")
 _MARKER = re.compile(r"\[(\d+)\]")
 
@@ -303,10 +332,17 @@ READ_URL_DONE = (
 
 
 def format_research_answer(
-    report: str, sources: Sequence[CitedSource]
+    report: str, sources: Sequence[CitedSource], shown: Sequence[str] = ()
 ) -> FormattedAnswer:
-    """Build the model-facing answer: renumbered report, source list and any notes."""
-    numbered, mapping, merges = dedupe_sources(sources)
+    """Build the model-facing answer: renumbered report, source list and any notes.
+
+    `shown` lists the source URLs already on the message, in the order they were
+    sent, so the numbers here continue from them.
+    """
+    deduped, local, local_merges = dedupe_sources(sources)
+    numbered, renumbered = place_after(deduped, shown)
+    mapping = {old: renumbered[new] for old, new in local.items()}
+    merges = tuple(replace(m, kept=renumbered[m.kept]) for m in local_merges)
     body, unmatched = renumber_markers(report.strip(), mapping)
 
     lines: list[str] = [body, ""]
@@ -577,17 +613,161 @@ def truncation_note(trimmed: TrimmedText) -> str:
     )
 
 
-def format_page(url: str, title: str | None, markdown: str, max_chars: int) -> str:
-    """Build the model-facing text for one page read with read_url."""
+# Words too common to say what part of a page matters.
+_COMMON_WORDS = (
+    "about and are does for from has have how into its page tell that the their "
+    "them this was what when where which who why will with"
+)
+_FOCUS_STOPWORDS = frozenset(_COMMON_WORDS.split())
+_HEADING = re.compile(r"^#{1,6}\s")
+_GAP = "[...]"
+# Pages often come through with few or no headings, so long sections are cut
+# into parts of about this many characters at paragraph breaks.
+PART_CHARS = 2000
+
+
+def focus_terms(focus: str) -> tuple[str, ...]:
+    """Return the words of focus worth searching for, in order, without repeats."""
+    words = re.findall(r"[a-z0-9]+", focus.lower())
+    return tuple(
+        dict.fromkeys(w for w in words if len(w) >= 3 and w not in _FOCUS_STOPWORDS)
+    )
+
+
+def split_sections(markdown: str, part_chars: int = PART_CHARS) -> list[str]:
+    """Split markdown into parts: at headings, and at paragraph breaks in long text.
+
+    Code fences are never split, so a part can be longer than part_chars.
+    """
+    parts: list[list[str]] = [[]]
+    size = 0
+    in_fence = False
+    for line in markdown.splitlines():
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+        elif not in_fence and parts[-1]:
+            at_heading = _HEADING.match(line) is not None
+            at_break = not line.strip() and size >= part_chars
+            if at_heading or at_break:
+                parts.append([])
+                size = 0
+        parts[-1].append(line)
+        size += len(line) + 1
+    return ["\n".join(lines).strip() for lines in parts if "".join(lines).strip()]
+
+
+def _section_score(section: str, terms: Sequence[str]) -> int:
+    """Count mentions of terms; a mention on the first line counts three times."""
+    heading, _, body = section.partition("\n")
+    score = 0
+    for term in terms:
+        pattern = re.compile(rf"\b{re.escape(term)}")
+        score += 3 * len(pattern.findall(heading.lower()))
+        score += len(pattern.findall(body.lower()))
+    return score
+
+
+@dataclass(frozen=True)
+class FocusedText:
+    """The parts of a long page that mention what the model asked about."""
+
+    text: str
+    kept_chars: int
+    total_chars: int
+    kept_parts: int
+    total_parts: int
+    terms: tuple[str, ...]
+
+
+def focus_markdown(markdown: str, focus: str, max_chars: int) -> FocusedText | None:
+    """Keep the best-matching parts that fit in max_chars, in page order.
+
+    Returns None when the page already fits, focus has no useful words, or no
+    part mentions them; the caller then keeps the start of the page.
+    """
+    text = markdown.strip()
+    terms = focus_terms(focus)
+    if len(text) <= max_chars or not terms:
+        return None
+    sections = split_sections(text)
+    scores = [_section_score(section, terms) for section in sections]
+    ranked = sorted(
+        (i for i, score in enumerate(scores) if score > 0),
+        key=lambda i: (-scores[i], i),
+    )
+    if not ranked:
+        return None
+    gap_cost = len(_GAP) + 4
+    budget = max_chars
+    chosen: dict[int, str] = {}
+    for index in ranked:
+        section = sections[index]
+        if len(section) + gap_cost <= budget:
+            chosen[index] = section
+            budget -= len(section) + gap_cost
+        elif not chosen:
+            # The best part alone is too long: keep its start.
+            chosen[index] = trim_markdown(section, max(budget - gap_cost, 1)).text
+            break
+    parts: list[str] = []
+    previous = -1
+    for index in sorted(chosen):
+        if index != previous + 1:
+            parts.append(_GAP)
+        parts.append(chosen[index])
+        previous = index
+    if previous != len(sections) - 1:
+        parts.append(_GAP)
+    return FocusedText(
+        text="\n\n".join(parts),
+        kept_chars=sum(len(part) for part in chosen.values()),
+        total_chars=len(text),
+        kept_parts=len(chosen),
+        total_parts=len(sections),
+        terms=terms,
+    )
+
+
+def focus_note(focused: FocusedText) -> str:
+    """Return a one-line note saying which part of the page was kept."""
+    return (
+        f"[Focused on: {', '.join(focused.terms)}. Kept {focused.kept_parts} of "
+        f"{focused.total_parts} parts of the page ({focused.kept_chars:,} of "
+        f"{focused.total_chars:,} characters), in page order; {_GAP} marks parts "
+        "left out.]"
+    )
+
+
+def page_body(markdown: str, max_chars: int, focus: str = "") -> tuple[str, str | None]:
+    """Return the page text to pass on and a note on what was left out, if anything."""
+    focused = focus_markdown(markdown, focus, max_chars)
+    if focused is not None:
+        return focused.text, focus_note(focused)
     trimmed = trim_markdown(markdown, max_chars)
+    if not trimmed.trimmed:
+        return trimmed.text, None
+    note = truncation_note(trimmed)
+    if focus_terms(focus):
+        note += (
+            f" Nothing on the page mentions {', '.join(focus_terms(focus))}, so the "
+            "start of the page is shown."
+        )
+    return trimmed.text, note
+
+
+def format_page(
+    url: str, title: str | None, markdown: str, max_chars: int, focus: str = ""
+) -> str:
+    """Build the model-facing text for one page read with read_url."""
+    body, note = page_body(markdown, max_chars, focus)
     lines = [
         f"Page: {title}" if title else "Page: (no title)",
         f"URL: {url}",
         "",
-        trimmed.text,
+        body,
     ]
-    if trimmed.trimmed:
-        lines.extend(["", truncation_note(trimmed)])
+    if note:
+        lines.extend(["", note])
     lines.extend(["", READ_URL_DONE])
     return "\n".join(lines)
 
@@ -637,6 +817,52 @@ class CallCounter:
         return True
 
 
+@dataclass
+class ShownSources:
+    """Remember, per reply, the citation URLs already sent to the message, in order."""
+
+    max_keys: int = 1024
+    urls: dict[str, list[str]] = field(default_factory=dict[str, list[str]])
+
+    def get(self, key: str) -> tuple[str, ...]:
+        """Return the URLs sent so far for key."""
+        return tuple(self.urls.get(key, ()))
+
+    def add(self, key: str, urls: Sequence[str]) -> None:
+        """Record URLs sent for key. Open WebUI merges a repeated URL into one chip."""
+        known = self.urls.pop(key, [])
+        known.extend(u for u in dict.fromkeys(urls) if u not in known)
+        self.urls[key] = known
+        while len(self.urls) > self.max_keys:
+            del self.urls[next(iter(self.urls))]
+
+
+# -- API keys -----------------------------------------------------------------
+
+KeyOwner = Literal["shared", "user"]
+
+
+@dataclass(frozen=True)
+class ChosenKey:
+    """The API key a call will use, and whose it is."""
+
+    value: str
+    owner: KeyOwner
+
+
+def choose_key(
+    shared_key: str, user_key: str, *, require_user_key: bool
+) -> ChosenKey | None:
+    """Pick the user's own key if set, else the shared key unless it is not allowed."""
+    own = user_key.strip()
+    if own:
+        return ChosenKey(own, "user")
+    shared = shared_key.strip()
+    if shared and not require_user_key:
+        return ChosenKey(shared, "shared")
+    return None
+
+
 # -- Errors -------------------------------------------------------------------
 
 
@@ -644,6 +870,7 @@ class FailureKind(Enum):
     """Every way a call can fail, as far as the chat is concerned."""
 
     MISSING_KEY = "missing_key"
+    MISSING_USER_KEY = "missing_user_key"
     REJECTED_KEY = "rejected_key"
     NO_PERMISSION = "no_permission"
     OUT_OF_CREDITS = "out_of_credits"
@@ -735,6 +962,7 @@ def classify_exception(
 # Small local models tend to paraphrase an error into "I could not find that"
 # and sometimes call the tool again. So each message is one sentence written
 # for the user, followed by an instruction the model can follow literally.
+_USER_VALVES = "Chat Controls > Valves > Tabstack"
 _RELAY = " Tell the user exactly this. Do not call this tool again for this question."
 _RELAY_URL = (
     " Tell the user exactly this. Only call read_url again with a full address "
@@ -750,27 +978,38 @@ def failure_message(
     timeout_seconds: float | None = None,
     idle_seconds: float | None = None,
     call_limit: int | None = None,
+    key_owner: KeyOwner = "shared",
 ) -> str:
     """Return a plain chat message for a failure. Never includes a stack trace."""
     suffix = f" ({detail})" if detail else ""
     what = "The research" if operation == "research" else "Reading the page"
+    own = key_owner == "user"
     if kind is FailureKind.MISSING_KEY:
         text = (
             "The Tabstack tool is not set up yet: it has no API key. An Open WebUI "
-            "admin needs to add one in the tool's Valves."
+            "admin needs to add one in the tool's Valves, or you can add your own "
+            f"under {_USER_VALVES}."
+        )
+    elif kind is FailureKind.MISSING_USER_KEY:
+        text = (
+            "The Tabstack tool needs your own API key, and none is set. Add it under "
+            f"{_USER_VALVES}."
         )
     elif kind is FailureKind.REJECTED_KEY:
         text = (
-            "Tabstack rejected the tool's API key. An Open WebUI admin needs to check "
-            "the key in the tool's Valves."
+            f"Tabstack rejected your API key. Check it under {_USER_VALVES}."
+            if own
+            else "Tabstack rejected the tool's API key. An Open WebUI admin needs to "
+            "check the key in the tool's Valves."
         )
     elif kind is FailureKind.NO_PERMISSION:
-        text = f"The Tabstack API key is not allowed to make this request{suffix}."
+        whose = "Your Tabstack API key" if own else "The Tabstack API key"
+        text = f"{whose} is not allowed to make this request{suffix}."
     elif kind is FailureKind.OUT_OF_CREDITS:
-        text = (
-            "The Tabstack account behind this tool is out of credits, so the request "
-            "was declined."
+        whose = (
+            "Your Tabstack account" if own else "The Tabstack account behind this tool"
         )
+        text = f"{whose} is out of credits, so the request was declined."
     elif kind is FailureKind.RATE_LIMITED:
         text = (
             "Tabstack is limiting how often this account can make requests. Try "
@@ -848,6 +1087,7 @@ def exception_message(
     stream_started: bool = False,
     timeout_seconds: float | None = None,
     idle_seconds: float | None = None,
+    key_owner: KeyOwner = "shared",
 ) -> str:
     """Return the chat message for an exception, with server detail redacted."""
     kind = classify_exception(exc, operation, stream_started=stream_started)
@@ -862,6 +1102,7 @@ def exception_message(
         detail=detail,
         timeout_seconds=timeout_seconds,
         idle_seconds=idle_seconds,
+        key_owner=key_owner,
     )
 
 
@@ -898,6 +1139,11 @@ class _Status:
     def __init__(self, emit: EventEmitter | None) -> None:
         """Wrap the emitter Open WebUI injected, which may be None."""
         self._emit = emit
+
+    @property
+    def active(self) -> bool:
+        """True when Open WebUI gave the tool an emitter to send events to."""
+        return self._emit is not None
 
     async def send(self, event: dict[str, object]) -> None:
         """Send one event. A failure to display progress must not fail the call."""
@@ -974,6 +1220,19 @@ class Tools:
             le=500000,
             description="Longest page text passed to the model, in characters.",
         )
+        require_user_key: bool = Field(
+            default=False,
+            description="Only use each user's own key; never the key above.",
+        )
+
+    class UserValves(BaseModel):
+        """Per-user settings, set in Chat Controls > Valves > Tabstack."""
+
+        tabstack_api_key: str = Field(
+            default="",
+            description="Your own Tabstack API key. Calls are billed to it.",
+            json_schema_extra={"input": {"type": "password"}},
+        )
 
     def __init__(self) -> None:
         """Set up valves; Open WebUI swaps in the saved values on each call."""
@@ -991,6 +1250,9 @@ class Tools:
             weakref.WeakKeyDictionary()
         )
         self._request_numbers = itertools.count(1)
+        # Citation numbers are per message, so a later call in the same reply
+        # has to number its sources after the ones already sent.
+        self._shown = ShownSources()
 
     def _reply_key(self, message_id: str | None, request: object | None) -> str | None:
         """Return a key shared by every call in one reply, or None if unknown."""
@@ -1007,12 +1269,34 @@ class Tools:
             return None
         return key
 
+    def _choose_key(self, user: Mapping[str, object] | None) -> ChosenKey | None:
+        """Pick the key for this call from the user's and the admin's valves."""
+        user_valves = (user or {}).get("valves")
+        if isinstance(user_valves, Mapping):
+            own = _as_str(
+                cast(Mapping[str, object], user_valves).get("tabstack_api_key")
+            )
+        else:
+            own = _as_str(getattr(user_valves, "tabstack_api_key", None))
+        return choose_key(
+            self.valves.tabstack_api_key,
+            own or "",
+            require_user_key=self.valves.require_user_key,
+        )
+
+    def _missing_key(self) -> FailureKind:
+        """Return the failure for a call with no usable key."""
+        if self.valves.require_user_key:
+            return FailureKind.MISSING_USER_KEY
+        return FailureKind.MISSING_KEY
+
     async def research(
         self,
         question: str,
         __event_emitter__: EventEmitter | None = None,
         __message_id__: str | None = None,
         __request__: object | None = None,
+        __user__: Mapping[str, object] | None = None,
     ) -> str:
         """
         Answer a question that needs current information from the web. Returns a cited
@@ -1025,10 +1309,11 @@ class Tools:
         """
         valves = self.valves
         status = _Status(__event_emitter__)
-        key = valves.tabstack_api_key.strip()
-        if not key:
+        chosen = self._choose_key(__user__)
+        if chosen is None:
             await status.done(failed_status("research"))
-            return failure_message(FailureKind.MISSING_KEY, "research")
+            return failure_message(self._missing_key(), "research")
+        key = chosen.value
         query = question.strip()
         if not query:
             await status.done(failed_status("research"))
@@ -1072,6 +1357,7 @@ class Tools:
                 stream_started=progress.events_seen > 0,
                 timeout_seconds=total,
                 idle_seconds=idle,
+                key_owner=chosen.owner,
             )
 
         outcome = progress.result()
@@ -1086,24 +1372,32 @@ class Tools:
                 detail="Tabstack returned an empty answer",
             )
 
-        answer = format_research_answer(outcome.report, outcome.sources)
-        for source in answer.sources:
+        shown = self._shown.get(reply) if reply else ()
+        answer = format_research_answer(outcome.report, outcome.sources, shown)
+        new = [s for s in answer.sources if not s.already_shown]
+        for source in new:
             await status.send(citation_event(source))
+        if reply and status.active:
+            self._shown.add(reply, [s.url for s in new])
         await status.done(finished_status(len(answer.sources)))
         return answer.text
 
     async def read_url(
         self,
         url: str,
+        focus: str = "",
         __event_emitter__: EventEmitter | None = None,
         __message_id__: str | None = None,
         __request__: object | None = None,
+        __user__: Mapping[str, object] | None = None,
     ) -> str:
         """
         Read one web page and return its text as clean Markdown. Use it when the user
         gives a link or asks about a specific page. Only http and https addresses work.
 
         :param url: The full address of the page, starting with http:// or https://.
+        :param focus: Optional. A few words on what to look for, such as "pricing" or
+            "release dates". On a long page, the parts that mention them are kept.
         """
         valves = self.valves
         status = _Status(__event_emitter__)
@@ -1112,10 +1406,11 @@ class Tools:
         if problem is not None:
             await status.done(failed_status("read_url"))
             return failure_message(FailureKind.INVALID_URL, "read_url", detail=problem)
-        key = valves.tabstack_api_key.strip()
-        if not key:
+        chosen = self._choose_key(__user__)
+        if chosen is None:
             await status.done(failed_status("read_url"))
-            return failure_message(FailureKind.MISSING_KEY, "read_url")
+            return failure_message(self._missing_key(), "read_url")
+        key = chosen.value
 
         calls = valves.max_read_url_calls_per_reply
         reply = self._reply_key(__message_id__, __request__)
@@ -1140,7 +1435,12 @@ class Tools:
         except Exception as exc:
             await status.done(failed_status("read_url"))
             return exception_message(
-                exc, "read_url", secret=key, timeout_seconds=limit, idle_seconds=limit
+                exc,
+                "read_url",
+                secret=key,
+                timeout_seconds=limit,
+                idle_seconds=limit,
+                key_owner=chosen.owner,
             )
 
         if not page.content.strip():
@@ -1153,10 +1453,9 @@ class Tools:
         title = _plain_title(page.metadata.title) if page.metadata else None
         page_url = _as_str(page.url) or target
         max_chars = valves.read_url_max_chars
-        await status.send(
-            page_citation_event(
-                page_url, title, trim_markdown(page.content, max_chars).text
-            )
-        )
+        body, _ = page_body(page.content, max_chars, focus)
+        await status.send(page_citation_event(page_url, title, body))
+        if reply and status.active:
+            self._shown.add(reply, [page_url])
         await status.done(f"Read {host}")
-        return format_page(page_url, title, page.content, max_chars)
+        return format_page(page_url, title, page.content, max_chars, focus)

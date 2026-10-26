@@ -31,13 +31,14 @@ Local Open WebUI (http://localhost:3000): `docker compose --profile host up -d` 
 - **Tests make no network calls.** An autouse fixture in `tests/conftest.py` patches socket connect. Tests swap in a fake client via `tool._client_factory` (the test seam set in `Tools.__init__`).
 - **No retries beyond the SDK default, ever.** Re-running Research repeats billing. Failures are returned to the model as a one-sentence `Error:` string plus a relay instruction (`_RELAY`), never raised, never containing stack traces or the API key (`redact`).
 - **Per-reply call cap.** `CallCounter` on the `Tools` instance, keyed by `__message_id__` (falling back to the `__request__` object, which is the same for every call in one reply), refuses calls beyond `max_*_calls_per_reply` valves without contacting Tabstack. It is in-memory per worker by design.
-- The tool never reads environment variables; the key comes only from the `tabstack_api_key` valve.
+- The tool never reads environment variables. The key comes from the user's `UserValves.tabstack_api_key` if set, else the admin `tabstack_api_key` valve unless `require_user_key` is on (`choose_key`). Failure messages take `key_owner` so they say whose key failed.
+- **Citation numbers are per message in Open WebUI**, so `ShownSources` remembers, per reply key, the URLs already sent; `format_research_answer(..., shown)` numbers new sources after them and skips re-sending ones already shown.
 
 ## Architecture
 
 `tabstack_tool.py` has two sections separated by banner comments:
 
-1. **Pure section**: no Open WebUI dependency. Research stream events are handled as plain mappings in wire format (camelCase, `{"event": ..., "data": {...}}`, what the SDK's `to_dict()` returns). Key pieces: `ResearchProgress` (feeds events -> status lines -> `ResearchCompleted | ResearchFailed | ResearchIncomplete`), citation handling (`parse_cited_pages` -> `dedupe_sources` via `url_identity` -> `renumber_markers` -> `format_research_answer`), `trim_markdown`/`format_page` for Extract, and `classify_exception`/`failure_message` mapping SDK/httpx errors to `FailureKind` user messages.
+1. **Pure section**: no Open WebUI dependency. Research stream events are handled as plain mappings in wire format (camelCase, `{"event": ..., "data": {...}}`, what the SDK's `to_dict()` returns). Key pieces: `ResearchProgress` (feeds events -> status lines -> `ResearchCompleted | ResearchFailed | ResearchIncomplete`), citation handling (`parse_cited_pages` -> `dedupe_sources` via `url_identity` -> `renumber_markers` -> `format_research_answer`), `page_body` for Extract (`focus_markdown` keeps the parts matching the model's optional `focus`, else `trim_markdown` keeps the start), and `classify_exception`/`failure_message` mapping SDK/httpx errors to `FailureKind` user messages.
 2. **Open WebUI wrapper**: `_Status` (wraps `__event_emitter__`, swallows emitter failures), `Valves`, and the `Tools` class with `research`/`read_url`, which also emit status and citation events.
 
 Tests are grouped by concern: `test_formatting` (citations, trimming), `test_events` (stream -> status), `test_errors` (failure messages), `test_tool` (end-to-end through `Tools` with fake client), `test_secrets` (no keys in fixtures, black check).

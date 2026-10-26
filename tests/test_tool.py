@@ -198,10 +198,12 @@ def test_only_research_and_read_url_are_exposed() -> None:
 
 
 def test_model_sees_only_the_plain_arguments() -> None:
-    # __event_emitter__ and __message_id__ are injected by Open WebUI.
+    # Arguments with leading underscores are injected by Open WebUI.
     tool = Tools()
     assert list(model_schema(tool.research)["properties"]) == ["question"]
-    assert list(model_schema(tool.read_url)["properties"]) == ["url"]
+    read_url = model_schema(tool.read_url)
+    assert list(read_url["properties"]) == ["url", "focus"]
+    assert read_url["required"] == ["url"]
 
 
 def test_docstrings_use_param_lines_open_webui_reads() -> None:
@@ -410,6 +412,78 @@ def test_research_missing_key_makes_no_call() -> None:
     )
     assert client.created_with == []
     assert recorder.statuses() == [("Research failed", True)]
+
+
+# -- per-user keys ------------------------------------------------------------
+
+USER_KEY = "fake-user-key-for-tests-5678"
+
+
+def as_user(key: str) -> dict[str, object]:
+    """Build __user__ the way Open WebUI does, with a UserValves instance."""
+    return {"id": "u1", "valves": Tools.UserValves(tabstack_api_key=key)}
+
+
+def test_user_key_is_used_instead_of_the_shared_key() -> None:
+    client = FakeClient(stream=FakeStream(sdk_events("research_complete.jsonl")))
+    run(make_tool(client).research("q", __user__=as_user(USER_KEY)))
+    assert [key for key, _ in client.created_with] == [USER_KEY]
+
+
+def test_blank_user_key_falls_back_to_the_shared_key() -> None:
+    client = FakeClient(page=load_json("extract_page.json"))
+    tool = make_tool(client)
+    run(tool.read_url("https://a.example", __user__=as_user("  ")))
+    run(tool.read_url("https://a.example", __user__={"id": "u1"}))
+    assert [key for key, _ in client.created_with] == [KEY, KEY]
+
+
+def test_user_valves_as_a_plain_dict_are_read_too() -> None:
+    client = FakeClient(page=load_json("extract_page.json"))
+    user = {"valves": {"tabstack_api_key": USER_KEY}}
+    run(make_tool(client).read_url("https://a.example", __user__=user))
+    assert [key for key, _ in client.created_with] == [USER_KEY]
+
+
+def test_required_user_key_refuses_the_shared_key() -> None:
+    client = FakeClient(stream=FakeStream([]))
+    tool = make_tool(client, require_user_key=True)
+    result = run(tool.research("q", __user__={"id": "u1"}))
+    assert result.startswith("Error: The Tabstack tool needs your own API key")
+    assert "Chat Controls > Valves > Tabstack" in result
+    assert client.created_with == []
+
+
+def test_required_user_key_uses_the_user_key() -> None:
+    client = FakeClient(page=load_json("extract_page.json"))
+    tool = make_tool(client, require_user_key=True)
+    result = run(tool.read_url("https://a.example", __user__=as_user(USER_KEY)))
+    assert result.startswith("Page:")
+    assert [key for key, _ in client.created_with] == [USER_KEY]
+
+
+def test_rejected_user_key_points_at_the_user_valves_and_is_not_echoed() -> None:
+    error = tabstack.AuthenticationError(
+        "Error code: 401",
+        response=httpx.Response(401, request=REQUEST),
+        body={"error": f"invalid key {USER_KEY}"},
+    )
+    client = FakeClient(research_error=error)
+    recorder = Recorder()
+    result = run(
+        make_tool(client).research(
+            "q", __event_emitter__=recorder, __user__=as_user(USER_KEY)
+        )
+    )
+    assert result.startswith("Error: Tabstack rejected your API key.")
+    assert USER_KEY not in everything_sent(recorder, result)
+
+
+def test_user_valves_key_input_is_masked() -> None:
+    assert Tools.UserValves().tabstack_api_key == ""
+    extra = Tools.UserValves.model_fields["tabstack_api_key"].json_schema_extra
+    assert extra == {"input": {"type": "password"}}
+    assert Tools().valves.require_user_key is False
 
 
 def test_research_empty_question_makes_no_call() -> None:
@@ -726,3 +800,76 @@ def test_valve_defaults_for_call_limits() -> None:
     valves = Tools().valves
     assert valves.max_research_calls_per_reply == 1
     assert valves.max_read_url_calls_per_reply == 3
+
+
+# -- citation numbers across calls in one reply -------------------------------
+
+
+def test_research_after_read_url_numbers_after_the_page() -> None:
+    # The page read here is the release notes, which Research also cites.
+    client = FakeClient(
+        page=load_json("extract_page.json"),
+        stream=FakeStream(sdk_events("research_complete.jsonl")),
+    )
+    tool = make_tool(client)
+    recorder = Recorder()
+    run(
+        tool.read_url(
+            "https://a.example", __event_emitter__=recorder, __message_id__="m1"
+        )
+    )
+    result = run(tool.research("q", __event_emitter__=recorder, __message_id__="m1"))
+    assert result.startswith(
+        "The example tool added a tools overview page in October 2026 [2]. "
+        "The release notes describe a new settings screen [1]"
+    )
+    assert "[1] Release notes - https://news.example.net/2026/10/release" in result
+    assert "[2] Tools overview - https://www.example.com/docs/tools" in result
+    urls = [c["metadata"][0]["source"] for c in recorder.citations()]
+    assert urls == [
+        "https://news.example.net/2026/10/release",
+        "https://www.example.com/docs/tools",
+        "https://docs.example.org/web-search.md",
+        "https://docs.example.org/web-search",
+    ]
+
+
+def test_second_research_call_reuses_numbers_and_skips_shown_citations() -> None:
+    events = sdk_events("research_complete.jsonl")
+    client = FakeClient(stream=FakeStream(events))
+    tool = make_tool(client, max_research_calls_per_reply=2)
+    recorder = Recorder()
+    run(tool.research("q", __event_emitter__=recorder, __message_id__="m1"))
+    client.agent.stream = FakeStream(events)
+    second = run(tool.research("q", __event_emitter__=recorder, __message_id__="m1"))
+    assert second.startswith(
+        "The example tool added a tools overview page in October 2026 [1]."
+    )
+    assert len(recorder.citations()) == 4
+
+
+def test_without_an_emitter_nothing_counts_as_shown() -> None:
+    client = FakeClient(
+        page=load_json("extract_page.json"),
+        stream=FakeStream(sdk_events("research_complete.jsonl")),
+    )
+    tool = make_tool(client)
+    run(tool.read_url("https://a.example", __message_id__="m1"))
+    result = run(tool.research("q", __message_id__="m1"))
+    assert "[1] Tools overview - https://www.example.com/docs/tools" in result
+
+
+def test_read_url_focus_reaches_the_page_text_and_citation() -> None:
+    client = FakeClient(page=load_json("recorded_extract_page.json"))
+    recorder = Recorder()
+    result = run(
+        make_tool(client).read_url(
+            "https://docs.python.org/3/whatsnew/3.14.html",
+            focus="zstandard",
+            __event_emitter__=recorder,
+        )
+    )
+    assert "[Focused on: zstandard." in result
+    assert "compression.zstd" in result
+    (citation,) = recorder.citations()
+    assert "[...]" in citation["document"][0]

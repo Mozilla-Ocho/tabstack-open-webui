@@ -86,7 +86,18 @@ Paths below are relative to those checkouts: `sdk/` is the unpacked wheel
   write grant on the tool.
   - Docs: `owui-docs/docs/features/extensibility/plugin/development/valves.mdx`, opening section.
 - `UserValves`: set by any user from a chat; reach the tool as
-  `__user__["valves"]`. Docs, same page; source `get_tools`.
+  `__user__["valves"]`, a `UserValves` instance built from the user's saved
+  values. Docs, same page; source `utils/tools.py`, `get_tools`
+  (`__user__['valves'] = module.UserValves(...)`). Saved in the user's
+  settings under `tools.valves.<tool id>` and decrypted with the same
+  `decrypt_valves` (`models/tools.py`, `get_user_valves_by_id_and_user_id`).
+  The UI is Chat Controls > Valves, which renders with the same `Valves.svelte`
+  component and password masking as admin valves
+  (`src/lib/components/chat/Controls/Valves.svelte`). Any user with read
+  access to the tool can update their own
+  (`routers/tools.py`, `/id/{id}/valves/user/update`). Checked on v0.12.3,
+  2026-10-26; seen live in EVIDENCE.md runs K1 to K3, where calls ran on a
+  key set only in the user valve.
 - A `str` field with `json_schema_extra={"input": {"type": "password"}}` is
   rendered masked. This only masks the UI.
 - Valve values are stored as plaintext JSON in the database unless the admin
@@ -178,10 +189,17 @@ Paths below are relative to those checkouts: `sdk/` is the unpacked wheel
   - Consequence: emitting one citation event per de-duplicated source, in the
     same order as the numbering in the tool's text, makes the model's `[n]`
     chips point at the right source, provided the model copies the markers.
-  - Limitation: numbering is per message. If the model calls `research` twice
-    in one reply, or another tool emits sources first, the second set of `[n]`
-    markers will point at the wrong entries. The tool cannot see how many
-    sources are already on the message.
+  - Numbering is per message, and a repeated id keeps its first number. The
+    tool records, per reply, the ids it has sent and numbers a later call's
+    sources after them, reusing the number of any page already sent (checked
+    against `getSourceIds` on v0.12.3, 2026-10-26; seen live in EVIDENCE.md
+    run K3, where a page read first was source 1 and Research numbered its
+    sources from 2).
+  - Limitation: sources added by other tools or by retrieval are not known to
+    the tool. Built-in tools emit theirs after the tool-calling turn ends
+    (`utils/middleware.py`, `tool_call_sources`), so they come after this
+    tool's in the same turn. Reading them would mean importing
+    `open_webui.models.chats` from inside the tool, which this tool avoids.
 
 ### 1.7a Per-reply identity and loop limit - CONFIRMED (source and docs)
 

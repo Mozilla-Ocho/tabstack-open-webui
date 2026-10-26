@@ -201,6 +201,20 @@ def test_missing_key_message() -> None:
     assert "no API key" in message
     assert message.startswith("Error: The Tabstack tool is not set up yet")
     assert "Valves" in message
+    assert "Chat Controls > Valves > Tabstack" in message
+
+
+def test_messages_name_whose_key_failed() -> None:
+    for kind in (
+        FailureKind.REJECTED_KEY,
+        FailureKind.NO_PERMISSION,
+        FailureKind.OUT_OF_CREDITS,
+    ):
+        shared = failure_message(kind, "research")
+        own = failure_message(kind, "research", key_owner="user")
+        assert "your" not in shared.split(".")[0].lower()
+        assert "Your" in own or "your" in own
+        assert own != shared
 
 
 def test_messages_are_distinct() -> None:

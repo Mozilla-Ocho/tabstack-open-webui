@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 from conftest import load_events, load_json
 
@@ -12,15 +14,20 @@ from tabstack_tool import (
     CitedSource,
     ResearchCompleted,
     ResearchProgress,
+    ShownSources,
     citation_event,
     clean_url,
     dedupe_sources,
+    focus_markdown,
+    focus_terms,
     format_page,
     format_research_answer,
+    page_body,
     page_citation_event,
     parse_cited_pages,
     plain_punctuation,
     renumber_markers,
+    split_sections,
     trim_markdown,
     truncation_note,
     url_identity,
@@ -364,3 +371,166 @@ def test_call_counter_forgets_the_oldest_keys() -> None:
     counter.take("c", 1)
     assert list(counter.counts) == ["b", "c"]
     assert counter.take("a", 1)  # forgotten, so allowed again
+
+
+# -- numbering after sources already on the message ---------------------------
+
+
+def complete_sources() -> tuple[str, tuple[CitedSource, ...]]:
+    events = load_events("research_complete.jsonl")
+    data = cast(dict[str, Any], events[-1]["data"])
+    return data["report"], parse_cited_pages(data["metadata"]["citedPages"])
+
+
+def test_numbers_continue_after_sources_already_shown() -> None:
+    report, sources = complete_sources()
+    shown = ("https://other.example/a", "https://news.example.net/2026/10/release")
+    answer = format_research_answer(report, sources, shown)
+    numbers = [(s.number, s.url, s.already_shown) for s in answer.sources]
+    assert numbers == [
+        (2, "https://news.example.net/2026/10/release", True),
+        (3, "https://www.example.com/docs/tools", False),
+        (4, "https://docs.example.org/web-search.md", False),
+        (5, "https://docs.example.org/web-search", False),
+    ]
+    assert answer.text.startswith(
+        "The example tool added a tools overview page in October 2026 [3]. "
+        "The release notes describe a new settings screen [2], and the overview "
+        "repeats that the screen is optional [3].\n\n"
+        "Web search is documented on its own page [4][5]. "
+        "Both changes shipped together [3][2]."
+    )
+    assert "[9] must not be renumbered" in answer.text
+    assert "[2] Release notes - https://news.example.net/2026/10/release" in answer.text
+    assert [m.kept for m in answer.merges] == [3]
+
+
+def test_a_variant_of_a_shown_url_keeps_its_number() -> None:
+    report, sources = complete_sources()
+    answer = format_research_answer(
+        report, sources, ("https://example.com/docs/tools",)
+    )
+    first = answer.sources[0]
+    assert (first.number, first.already_shown) == (1, True)
+    assert [s.number for s in answer.sources] == [1, 2, 3, 4]
+
+
+def test_nothing_shown_numbers_from_one() -> None:
+    report, sources = complete_sources()
+    assert format_research_answer(report, sources) == format_research_answer(
+        report, sources, ()
+    )
+
+
+def test_shown_sources_keep_order_and_merge_repeats() -> None:
+    shown = ShownSources(max_keys=2)
+    shown.add("a", ["https://x.example", "https://y.example", "https://x.example"])
+    shown.add("a", ["https://y.example", "https://z.example"])
+    assert shown.get("a") == (
+        "https://x.example",
+        "https://y.example",
+        "https://z.example",
+    )
+    shown.add("b", ["https://b.example"])
+    shown.add("c", ["https://c.example"])
+    assert shown.get("a") == ()
+    assert shown.get("missing") == ()
+
+
+# -- focused page text --------------------------------------------------------
+
+
+def long_page() -> str:
+    filler = ("Filler text about nothing in particular. " * 40).strip()
+    return "\n\n".join(
+        [
+            "# Product",
+            filler,
+            "## Pricing",
+            "Pricing starts at ten dollars. Pricing for teams is per seat.",
+            "## History",
+            filler,
+            "## Support",
+            "Support is by email. Pricing questions go to sales.",
+            "## Changelog",
+            filler,
+        ]
+    )
+
+
+GAP = "[...]"
+PRICING = "## Pricing\n\nPricing starts at ten dollars. Pricing for teams is per seat."
+SUPPORT = "## Support\n\nSupport is by email. Pricing questions go to sales."
+
+
+def test_focus_terms_drop_short_and_common_words() -> None:
+    assert focus_terms("What does the page say about Pricing, pricing and API?") == (
+        "say",
+        "pricing",
+        "api",
+    )
+    assert focus_terms("  ") == ()
+
+
+def test_split_sections_at_headings_and_long_paragraph_runs() -> None:
+    assert split_sections("intro\n# A\na\n```\n# not a heading\n```\n## B\nb") == [
+        "intro",
+        "# A\na\n```\n# not a heading\n```",
+        "## B\nb",
+    ]
+    paragraphs = "\n\n".join(f"Paragraph {n}. " + "x" * 90 for n in range(10))
+    parts = split_sections(paragraphs, part_chars=250)
+    assert len(parts) == 4
+    assert "\n\n".join(parts) == paragraphs
+
+
+def test_focus_keeps_matching_parts_in_page_order() -> None:
+    page = long_page()
+    focused = focus_markdown(page, "pricing", 1000)
+    assert focused is not None
+    assert focused.text == "\n\n".join([GAP, PRICING, GAP, SUPPORT, GAP])
+    assert (focused.kept_parts, focused.total_parts) == (2, 5)
+    assert focused.kept_chars == len(PRICING) + len(SUPPORT)
+    assert focused.total_chars == len(page)
+
+
+def test_focus_returns_none_when_not_needed_or_no_match() -> None:
+    page = long_page()
+    assert focus_markdown(page, "pricing", len(page)) is None
+    assert focus_markdown(page, "the and", 1000) is None
+    assert focus_markdown(page, "kangaroo", 1000) is None
+
+
+def test_focus_trims_a_best_part_longer_than_the_limit() -> None:
+    page = "## Pricing\n" + "Pricing detail. " * 200 + "\n\n## Other\nother"
+    focused = focus_markdown(page, "pricing", 500)
+    assert focused is not None
+    assert focused.text.startswith("## Pricing\nPricing detail.")
+    assert len(focused.text) <= 500
+    assert focused.kept_parts == 1
+
+
+def test_page_body_notes() -> None:
+    page = long_page()
+    body, note = page_body(page, 1000, "pricing")
+    assert body.startswith("[...]")
+    kept = len(PRICING) + len(SUPPORT)
+    assert note == (
+        f"[Focused on: pricing. Kept 2 of 5 parts of the page ({kept} of "
+        f"{len(page):,} characters), in page order; [...] marks parts left out.]"
+    )
+    _, note = page_body(page, 1000, "kangaroo")
+    assert note is not None
+    assert note.startswith("[Trimmed: kept the first ")
+    assert note.endswith(
+        "Nothing on the page mentions kangaroo, so the start of the page is shown."
+    )
+    assert page_body(page, 1000) == page_body(page, 1000, "the")
+    assert page_body("short", 1000, "pricing") == ("short", None)
+
+
+def test_format_page_with_focus() -> None:
+    text = format_page("https://a.example", "Product", long_page(), 1000, "pricing")
+    assert "## Pricing" in text
+    assert "[Focused on: pricing." in text
+    assert text.endswith(READ_URL_DONE)
