@@ -10,10 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import itertools
 import re
 import unicodedata
-import weakref
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from enum import Enum
@@ -1261,31 +1259,9 @@ class Tools:
         # single call on purpose: it caps billed calls per reply even when a
         # model keeps calling the tool. Each Open WebUI worker counts separately.
         self._calls = CallCounter()
-        # Fallback for replies with no message id, which is what API clients that
-        # send no `id` get. Open WebUI binds one request object to every tool call
-        # in a reply, so it identifies the reply; entries go when it is collected.
-        self._request_keys: weakref.WeakKeyDictionary[object, str] = (
-            weakref.WeakKeyDictionary()
-        )
-        self._request_numbers = itertools.count(1)
         # Citation numbers are per message, so a later call in the same reply
         # has to number its sources after the ones already sent.
         self._shown = ShownSources()
-
-    def _reply_key(self, message_id: str | None, request: object | None) -> str | None:
-        """Return a key shared by every call in one reply, or None if unknown."""
-        if message_id:
-            return f"message:{message_id}"
-        if request is None:
-            return None
-        try:
-            key = self._request_keys.get(request)
-            if key is None:
-                key = f"request:{next(self._request_numbers)}"
-                self._request_keys[request] = key
-        except TypeError:  # not hashable or not weak-referenceable
-            return None
-        return key
 
     def _choose_key(self, user: Mapping[str, object] | None) -> ChosenKey | None:
         """Pick the key for this call from the user's and the admin's valves."""
@@ -1313,7 +1289,6 @@ class Tools:
         question: str,
         __event_emitter__: EventEmitter | None = None,
         __message_id__: str | None = None,
-        __request__: object | None = None,
         __user__: Mapping[str, object] | None = None,
     ) -> str:
         """
@@ -1339,7 +1314,8 @@ class Tools:
                 FailureKind.BAD_REQUEST, "research", detail="the question was empty"
             )
         limit = valves.max_research_calls_per_reply
-        reply = self._reply_key(__message_id__, __request__)
+        # Open WebUI only runs tools itself for a request with a message id.
+        reply = __message_id__
         if reply and not self._calls.take(f"research:{reply}", limit):
             await status.done("Research not run again")
             return failure_message(
@@ -1408,7 +1384,6 @@ class Tools:
         focus: str = "",
         __event_emitter__: EventEmitter | None = None,
         __message_id__: str | None = None,
-        __request__: object | None = None,
         __user__: Mapping[str, object] | None = None,
     ) -> str:
         """
@@ -1433,7 +1408,8 @@ class Tools:
         key = chosen.value
 
         calls = valves.max_read_url_calls_per_reply
-        reply = self._reply_key(__message_id__, __request__)
+        # Open WebUI only runs tools itself for a request with a message id.
+        reply = __message_id__
         if reply and not self._calls.take(f"read_url:{reply}", calls):
             await status.done("Page not read again")
             return failure_message(

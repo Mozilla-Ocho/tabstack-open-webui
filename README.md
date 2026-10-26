@@ -63,9 +63,8 @@ can edit the tool can read its valves.
   call repeats the work and the billing.
 - **Repeated calls from the model are capped.** In testing, a model called
   `research` 24 times in one reply after getting good answers. The tool now
-  counts calls per reply (using the message id Open WebUI passes it, or the
-  request itself for API calls that send no message id) and refuses any
-  beyond the valve limit, without contacting Tabstack. Successful
+  counts calls per reply (using the message id Open WebUI passes it) and
+  refuses any beyond the valve limit, without contacting Tabstack. Successful
   results also end with an instruction to answer from them and not call
   again. The count is kept in memory per Open WebUI worker. Also set
   `CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS` (see the install guide).
@@ -101,7 +100,9 @@ can edit the tool can read its valves.
   on (36 extra tools offered alongside this one), even with a more insistent
   tool description. They called it in all 4 runs with only the Memory,
   Knowledge Base and Files categories left on, and in all 24 runs with
-  built-in tools off. That is a small number of runs on two models, not a
+  built-in tools off. Adding categories back one group at a time, no single
+  one was to blame; the model stopped calling the tool once about 15 extra
+  tools were offered. That is a small number of runs on two models, not a
   rate. The install guide explains both settings.
 - **The model has to copy the `[n]` markers** into its reply for the citation
   chips to appear next to each point. Small models often drop some or all of

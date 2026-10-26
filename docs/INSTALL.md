@@ -195,8 +195,11 @@ memories, knowledge bases and chat files working:
 
 ![The Builtin Tools categories, all still on](screenshots/model-04-builtin-categories.png)
 
-Which of the other categories causes the problem was not narrowed down, so
-switching a category back on may stop the model calling the tool again.
+No single category was to blame in testing: what mattered was how many tools
+the model was offered. `llama3.1:8b` still called the tool with a few more
+categories switched on (up to about 9 extra tools), but not with about 15
+(see [EVIDENCE.md](EVIDENCE.md), section 12). Switch back on only the
+categories you need, and check that the tool is still called afterwards.
 
 **Switch built-in tools off entirely.** If the model still does not call the
 tool:

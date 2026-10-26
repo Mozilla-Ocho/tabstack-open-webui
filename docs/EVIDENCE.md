@@ -382,8 +382,8 @@ What these runs show, for this model and these prompts only:
 - Only `llama3.1:8b` was run with a working key; `qwen3:8b` was run without
   one (section 5).
 - The `bundled` profile was not used for any run after section 4.
-- The per-reply cap for API requests that send no message id is covered by
-  tests only. The chat runs in section 11 always have a message id.
+- API requests that send no message id: Open WebUI does not run tools for
+  them at all (section 12.3), so the per-reply cap does not need a fallback.
 
 ## 10. `read_url_effort=max` on the bank holidays page
 
@@ -479,3 +479,61 @@ set back to Builtin Tools off with no per-category settings.
 Calls made with the working key in this section: 6 Research (K2, K3, P1 x2,
 P2 x2; the refused second call in K2 made none) and 1 Extract (K3). Totals for
 2026-10-26, with section 10: **6 Research calls and 2 Extract calls**.
+
+## 12. Failure wording, built-in tool narrowing and the API path
+
+Run on 2026-10-26, after section 11, with `tabstack_tool.py` at the commit
+that adds this section. Same container, sign-in and driver as section 11;
+`llama3.1:8b` only; key in the admin valve unless stated.
+
+### 12.1 Reworded failure messages (Builtin Tools off)
+
+| Run | Setup | Prompt | What happened | Time |
+| --- | --- | --- | --- | --- |
+| W1 | No key anywhere | Which UK bank holidays are left in 2026 in England? | `research` x1 returned the missing-key message, now ending "Tell the user exactly this and add nothing about how to fix it." The reply invented no fix (compare K1), but did not pass the message on either: "I'm unable to provide the information ... as I need access to the Tabstack tool to retrieve the data." | 39.5 s |
+| W2 | Key set | The two-question prompt from K2 | `research` x2 in one turn. The second returned 'Error: research already ran 1 time for this reply, so it was not run again for "most recent Formula 1 Grand Prix winner" and nothing was charged. Answer the user from the earlier result, and tell them plainly that this part was not looked up. ...' The reply listed the 2026 bank holidays and ended "I was unable to look up the most recent Formula 1 Grand Prix winner." (In K2 it said nothing about it.) | 79.2 s |
+
+### 12.2 Which built-in tools stop the call
+
+Builtin Tools on, starting from the section 11 set that worked (`memory`,
+`knowledge`, `files`) and adding categories, with the PSF prompt. How many
+tools each category adds was read from `utils/tools.py`, `get_builtin_tools`,
+on v0.12.3 with this instance's settings: `chats` 2, `notes` 4, `automations`
+5, `calendar` 4; `channels` 0 (channels are off on this instance);
+`code_interpreter` and `image_generation` 0 (they also need the feature
+switched on in the chat, which these runs did not do).
+
+| Run | Categories added | Tools added | Called `research`? | Time |
+| --- | --- | --- | --- | --- |
+| N1 | automations, calendar, channels, chats, code_interpreter, image_generation, notes | about 15 | no ("I don't have access to real-time information ...") | 24.9 s |
+| N2 | automations, calendar, channels | about 9 | yes, 3 sources | 103.8 s |
+| N3 | chats, code_interpreter | 2 | yes, 4 sources | 136.5 s |
+| N4 | notes | 4 | yes, 2 sources | 145.6 s |
+| N5 | image_generation | 0 | yes, 4 sources | 46.8 s |
+
+Every group that worked on its own was part of N1, which did not. For this
+model and prompt, the runs point to the number of tools offered rather than
+any one category: somewhere between about 9 and 15 extra tools, the model
+stopped calling this one. Each line is a single run on one model.
+
+### 12.3 The API path with no message id
+
+A request to `POST /api/chat/completions` with `tool_ids: ["tabstack"]`, the
+K2 prompt and no `id`, `chat_id` or `session_id`, signed in with the same
+account's token. Open WebUI did not run the tools: the stream ended after
+the model's two `research` tool calls with `finish_reason: "tool_calls"`,
+handing them to the API client. Nothing reached Tabstack (7.9 s). In the
+source, Open WebUI only runs tools itself when the request has both a
+`chat_id` and a message id (`utils/middleware.py`,
+`get_event_emitter_and_caller`, and the `if event_emitter:` branch of
+`streaming_chat_response_handler`), so with Native function calling the tool
+always receives `__message_id__`.
+
+### 12.4 Clean-up
+
+The key was cleared from the admin valve and the model set back to Builtin
+Tools off with no per-category settings.
+
+Calls made with the working key in this section: 5 Research (W2, N2, N3, N4,
+N5) and no Extract. Totals for 2026-10-26: **11 Research calls and 2 Extract
+calls**.
