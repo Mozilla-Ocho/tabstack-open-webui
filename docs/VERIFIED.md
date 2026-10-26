@@ -191,6 +191,20 @@ Paths below are relative to those checkouts: `sdk/` is the unpacked wheel
   `'__message_id__': metadata.get('message_id')` once per request, so every
   tool call in the agentic loop of one reply sees the same id. Seen live: all
   repeated calls in run R4 belonged to one assistant message.
+- A request to `/api/chat/completions` with no `id` (or `message_ids`) in the
+  body gets `message_id` None, so tools see `__message_id__=None`
+  (`main.py`, `chat_completion`: `form_data.pop('id', None)`, then the
+  "Legacy/direct" branch sets `metadata['message_id']` from it). Checked
+  2026-10-26 on v0.12.3.
+- `__request__` is the same object for every tool call in one reply:
+  `process_chat_payload` builds `extra_params` once with
+  `'__request__': request` and `get_tools` binds them to each tool function
+  with `functools.partial` (`utils/middleware.py`; `utils/tools.py`,
+  `get_async_tool_function_and_apply_extra_params`, which also drops any
+  extra param not in the function's signature). The tool uses it as the
+  per-reply key when `__message_id__` is missing. Starlette's `Request` is
+  hashable and can be weakly referenced (checked with `starlette` from PyPI,
+  2026-10-26). Checked 2026-10-26 on v0.12.3; not yet seen live.
 - `CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS` caps tool-calling turns per reply,
   default 256, `-1` for unlimited, read once at start-up and not editable in
   the admin UI (`owui/backend/open_webui/env.py`; docs

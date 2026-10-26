@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import itertools
 import re
 import unicodedata
+import weakref
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
@@ -982,12 +984,35 @@ class Tools:
         # single call on purpose: it caps billed calls per reply even when a
         # model keeps calling the tool. Each Open WebUI worker counts separately.
         self._calls = CallCounter()
+        # Fallback for replies with no message id, which is what API clients that
+        # send no `id` get. Open WebUI binds one request object to every tool call
+        # in a reply, so it identifies the reply; entries go when it is collected.
+        self._request_keys: weakref.WeakKeyDictionary[object, str] = (
+            weakref.WeakKeyDictionary()
+        )
+        self._request_numbers = itertools.count(1)
+
+    def _reply_key(self, message_id: str | None, request: object | None) -> str | None:
+        """Return a key shared by every call in one reply, or None if unknown."""
+        if message_id:
+            return f"message:{message_id}"
+        if request is None:
+            return None
+        try:
+            key = self._request_keys.get(request)
+            if key is None:
+                key = f"request:{next(self._request_numbers)}"
+                self._request_keys[request] = key
+        except TypeError:  # not hashable or not weak-referenceable
+            return None
+        return key
 
     async def research(
         self,
         question: str,
         __event_emitter__: EventEmitter | None = None,
         __message_id__: str | None = None,
+        __request__: object | None = None,
     ) -> str:
         """
         Answer a question that needs current information from the web. Returns a cited
@@ -1011,7 +1036,8 @@ class Tools:
                 FailureKind.BAD_REQUEST, "research", detail="the question was empty"
             )
         limit = valves.max_research_calls_per_reply
-        if __message_id__ and not self._calls.take(f"research:{__message_id__}", limit):
+        reply = self._reply_key(__message_id__, __request__)
+        if reply and not self._calls.take(f"research:{reply}", limit):
             await status.done("Research not run again")
             return failure_message(FailureKind.CALL_LIMIT, "research", call_limit=limit)
 
@@ -1071,6 +1097,7 @@ class Tools:
         url: str,
         __event_emitter__: EventEmitter | None = None,
         __message_id__: str | None = None,
+        __request__: object | None = None,
     ) -> str:
         """
         Read one web page and return its text as clean Markdown. Use it when the user
@@ -1091,7 +1118,8 @@ class Tools:
             return failure_message(FailureKind.MISSING_KEY, "read_url")
 
         calls = valves.max_read_url_calls_per_reply
-        if __message_id__ and not self._calls.take(f"read_url:{__message_id__}", calls):
+        reply = self._reply_key(__message_id__, __request__)
+        if reply and not self._calls.take(f"read_url:{reply}", calls):
             await status.done("Page not read again")
             return failure_message(FailureKind.CALL_LIMIT, "read_url", call_limit=calls)
 

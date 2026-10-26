@@ -642,7 +642,7 @@ def test_research_limit_is_per_reply_and_configurable() -> None:
     assert len(client.agent.calls) == 3
 
 
-def test_no_message_id_means_no_limit() -> None:
+def test_no_message_id_or_request_means_no_limit() -> None:
     events = sdk_events("research_complete.jsonl")
     client = FakeClient(stream=FakeStream(events))
     tool = make_tool(client)
@@ -650,6 +650,53 @@ def test_no_message_id_means_no_limit() -> None:
         client.agent.stream = FakeStream(events)
         assert not run(tool.research("q")).startswith("Error:")
     assert len(client.agent.calls) == 3
+
+
+class FakeRequest:
+    """Stands in for the Starlette request Open WebUI binds to every call."""
+
+
+def test_request_object_limits_a_reply_without_message_id() -> None:
+    # API clients that send no `id` get __message_id__=None; the request object
+    # is still the same for every tool call in the reply.
+    events = sdk_events("research_complete.jsonl")
+    client = FakeClient(stream=FakeStream(events))
+    tool = make_tool(client)
+    request = FakeRequest()
+    assert "Sources:" in run(tool.research("q", __request__=request))
+    client.agent.stream = FakeStream(events)
+    second = run(tool.research("q", __request__=request))
+    assert second.startswith("Error: research already ran 1 time for this reply")
+    client.agent.stream = FakeStream(events)
+    assert "Sources:" in run(tool.research("q", __request__=FakeRequest()))
+    assert len(client.agent.calls) == 2
+
+
+def test_message_id_takes_precedence_over_request() -> None:
+    client = FakeClient(page=load_json("extract_page.json"))
+    tool = make_tool(client, max_read_url_calls_per_reply=1)
+    request = FakeRequest()
+    url = "https://a.example"
+    assert run(tool.read_url(url, __message_id__="m1", __request__=request)).startswith(
+        "Page:"
+    )
+    assert run(tool.read_url(url, __message_id__="m2", __request__=request)).startswith(
+        "Page:"
+    )
+    assert run(tool.read_url(url, __request__=request)).startswith("Page:")
+    assert run(tool.read_url(url, __request__=request)).startswith("Error:")
+    assert len(client.extract.calls) == 3
+
+
+def test_untrackable_request_means_no_limit() -> None:
+    # A plain object() cannot be weakly referenced, so there is no key to count.
+    client = FakeClient(page=load_json("extract_page.json"))
+    tool = make_tool(client, max_read_url_calls_per_reply=1)
+    request = object()
+    for _ in range(2):
+        assert run(tool.read_url("https://a.example", __request__=request)).startswith(
+            "Page:"
+        )
 
 
 def test_read_url_limit_per_reply() -> None:
