@@ -63,8 +63,10 @@ can edit the tool can read its valves.
   call repeats the work and the billing.
 - **Repeated calls from the model are capped.** In testing, a model called
   `research` 24 times in one reply after getting good answers. The tool now
-  counts calls per reply (using the message id Open WebUI passes it) and
-  refuses any beyond the valve limit, without contacting Tabstack. Successful
+  counts calls per reply (using the message id Open WebUI passes it, or, for
+  an API request with no message id in Default function calling, the request
+  itself) and refuses any beyond the valve limit, without contacting
+  Tabstack. Successful
   results also end with an instruction to answer from them and not call
   again. The count is kept in memory per Open WebUI worker. Also set
   `CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS` (see the install guide).

@@ -215,14 +215,26 @@ Paths below are relative to those checkouts: `sdk/` is the unpacked wheel
   (`main.py`, `chat_completion`: `form_data.pop('id', None)`, then the
   "Legacy/direct" branch sets `metadata['message_id']` from it). Checked
   2026-10-26 on v0.12.3.
-- Open WebUI only runs tools itself when the request has both a `chat_id` and
-  a message id (`utils/middleware.py`, `get_event_emitter_and_caller`, and the
-  `if event_emitter:` branch of `streaming_chat_response_handler`). Without
-  them it hands the model's tool calls back to the API client. So with Native
-  function calling the tool always receives `__message_id__`. Checked
-  2026-10-26 on v0.12.3, in source and live (EVIDENCE.md section 12.3). A
-  request-object fallback for the per-reply cap was added and then removed
-  for this reason.
+- With Native function calling, Open WebUI only runs tools itself when the
+  request has both a `chat_id` and a message id (`utils/middleware.py`,
+  `get_event_emitter_and_caller`, and the `if event_emitter:` branch of
+  `streaming_chat_response_handler`). Without them it hands the model's tool
+  calls back to the API client. Checked 2026-10-26 on v0.12.3, in source and
+  live (EVIDENCE.md section 12.3).
+- In Default function calling (`params.function_calling == "legacy"`, settable
+  per request), Open WebUI runs every tool call the model lists while
+  preparing the request (`utils/middleware.py`, `chat_completion_tools_handler`,
+  `for tool_call in result.get('tool_calls')`), with the same `extra_params`.
+  An API request with no `id` then reaches the tool with `__message_id__=None`.
+  Seen live in EVIDENCE.md section 13.
+- `__request__` is the same object for every tool call in one request:
+  `process_chat_payload` builds `extra_params` once with
+  `'__request__': request` and `get_tools` binds them to each tool function
+  with `functools.partial` (`utils/tools.py`,
+  `get_async_tool_function_and_apply_extra_params`, which also drops any extra
+  param not in the function's signature). The tool uses it as the per-reply
+  key when `__message_id__` is missing. Starlette's `Request` is hashable and
+  can be weakly referenced (checked with `starlette` from PyPI, 2026-10-26).
 - `CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS` caps tool-calling turns per reply,
   default 256, `-1` for unlimited, read once at start-up and not editable in
   the admin UI (`owui/backend/open_webui/env.py`; docs
