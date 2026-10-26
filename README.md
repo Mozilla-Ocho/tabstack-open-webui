@@ -33,7 +33,7 @@ the Open WebUI image yourself.
 
 | Valve | Default | What it does |
 | --- | --- | --- |
-| `tabstack_api_key` | empty | Your Tabstack API key. Masked in the UI. |
+| `tabstack_api_key` | empty | The shared Tabstack API key, used for anyone who has not set their own. Masked in the UI. |
 | `research_mode` | `fast` | `balanced` reads more sources and needs a paid plan. |
 | `research_timeout_seconds` | 300 | Stops a Research call that runs longer than this. |
 | `research_idle_timeout_seconds` | 120 | Stops a Research call if Tabstack sends nothing for this long. |
@@ -47,9 +47,9 @@ the Open WebUI image yourself.
 Each user can also set their own key in a chat under **Controls** (the
 sliders icon at the top right) **> Valves > Tools > Tabstack** (a user valve,
 masked in the UI). This needs the Chat Controls and Valves user permissions,
-which are on by default. When set, that user's calls use
-and are billed to their key instead of the shared one. Error messages about a
-rejected key or an empty account say whose key it was.
+which are on by default. When set, that user's calls use and are billed to
+their key instead of the shared one. Error messages about a rejected key or an
+empty account say whose key it was.
 
 Open WebUI stores valve values, including user valves, in its database as
 plain text unless the admin sets `ENABLE_VALVE_ENCRYPTION=true`. Anyone who
@@ -71,10 +71,12 @@ can edit the tool can read its valves.
   `CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS` (see the install guide).
 - **Failures come back as plain messages** starting `Error:`, such as a
   missing or rejected key, a timeout, a stream that ended with an error, a
-  stream that closed early, or a page Tabstack could not read. Each is one
-  sentence written for the user, followed by an instruction to repeat it and
-  not call the tool again for the same question. No stack traces reach the
-  chat, and the key is never echoed.
+  stream that closed early, or a page Tabstack could not read. Each is a short
+  message written for the user, followed by an instruction to repeat it as it
+  is, add nothing about how to fix it, and not call the tool again for the
+  same question. A call refused by the per-reply limit names the question or
+  page that was refused and asks the model to tell the user it was not looked
+  up. No stack traces reach the chat, and the key is never echoed.
 - **`read_url` only accepts `http` and `https` URLs** and says why when it
   refuses one.
 - **Page titles are cleaned.** Decorative punctuation in source titles (em
@@ -101,14 +103,13 @@ can edit the tool can read its valves.
   Knowledge Base and Files categories left on, and in all 24 runs with
   built-in tools off. That is a small number of runs on two models, not a
   rate. The install guide explains both settings.
-- **Small models often drop the `[n]` markers.** `llama3.1:8b` left them out
-  of three of its four cited replies on 2026-10-26, so its sources only
-  showed in the panel under the reply, not as chips next to each point.
+- **The model has to copy the `[n]` markers** into its reply for the citation
+  chips to appear next to each point. Small models often drop some or all of
+  them: `llama3.1:8b` left them all out of three of its four cited replies on
+  2026-10-26, so its sources only showed in the panel under the reply.
 - **Other tools' sources shift the numbers.** The tool only knows about the
   sources it sent itself. If another tool, or a knowledge base, adds sources
   to the message first, the `[n]` chips point at the wrong sources.
-- The model has to copy the `[n]` markers into its reply for the citation
-  chips to appear. In testing, some replies kept only some of them.
 - `read_url` passes at most 20,000 characters of a page by default: the
   start, or the parts matching `focus` if the model gives one. The model only
   sees that text. The tool passes on what Tabstack returns; in testing, a
@@ -141,8 +142,9 @@ black's style and a test checks that black leaves it unchanged.
 - `tabstack_tool.py` has two sections: pure functions with no Open WebUI
   dependency (citations, status lines, trimming, error messages), and the
   `Tools` class that Open WebUI loads.
-- `tests/fixtures/` holds hand-built Research and Extract fixtures. See the
-  README there.
+- `tests/fixtures/` holds Research and Extract fixtures, both recorded from
+  the live API and hand-built for cases a live call cannot produce on demand.
+  See the README there.
 - `docs/VERIFIED.md` records every API and plugin behaviour the code relies
   on, and where it was checked.
 
@@ -161,5 +163,9 @@ docker compose --profile bundled up -d
 ```
 
 The tool never reads environment variables; its key comes only from the
-valve. If you keep a `TABSTACK_API_KEY` in a local `.env` for scripts you run
-by hand, git ignores it.
+admin valve or the user's own valve. If you keep a `TABSTACK_API_KEY` in a
+local `.env` for scripts you run by hand, git ignores it.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
