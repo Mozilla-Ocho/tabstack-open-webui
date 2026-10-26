@@ -377,8 +377,87 @@ What these runs show, for this model and these prompts only:
 
 ## 9. Not done
 
-- The per-reply refusal has not been seen live, only in tests, because the
-  model did not try a second call in section 8.
+- The per-reply refusal was not seen in section 8; it was seen in
+  section 11 (run K2).
 - Only `llama3.1:8b` was run with a working key; `qwen3:8b` was run without
   one (section 5).
 - The `bundled` profile was not used for any run after section 4.
+- The per-reply cap for API requests that send no message id is covered by
+  tests only. The chat runs in section 11 always have a message id.
+
+## 10. `read_url_effort=max` on the bank holidays page
+
+Run on 2026-10-26 through the SDK directly (`tabstack==2.8.5`, outside Open
+WebUI), to see whether `max` effort keeps the date column that was missing in
+run U3:
+`extract.markdown(url="https://www.gov.uk/bank-holidays", metadata=True, effort="max")`.
+
+- 12,267 characters in 12.3 s.
+- **The date column is still missing.** Each table still comes through as
+  run-together text with no table markup (no `|` anywhere in the page), for
+  example "Upcoming bank holidays in England and Wales 2026
+  DateDay of the weekBank holidayFridayChristmas DayMondayBoxing Day
+  (substitute day)". No date in the form "25 December 2026" appears anywhere;
+  the only dates are in the "next bank holiday" headings. In the page HTML
+  each date is a `<th scope="row">` wrapping a `<time>` element.
+- So the loss is in how Tabstack converts this page, not in how much effort
+  it spends rendering it. The tool cannot recover the dates.
+
+Calls made with the working key on 2026-10-26: 1 Extract.
+
+## 11. Per-user keys, refusal, focus, numbering and built-in tools
+
+Run on 2026-10-26 on the `host` profile (Open WebUI v0.12.3, same container
+as sections 5 to 8, `CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS=3`), with
+`tabstack_tool.py` at the commit that adds this section, pushed through
+`POST /api/v1/tools/id/tabstack/update` (stored content identical to the
+file). Chats were driven through the real UI with Playwright and headless
+Chromium, signed in as a second admin account created for these runs (the
+first account's password had not been kept). Tool calls, results, sources and
+statuses were read back with `GET /api/v1/chats/{id}`. Valves at their
+defaults unless stated (`fast` mode, 1 Research and 3 `read_url` calls per
+reply).
+
+### 11.1 Keys, refusal, focus and numbering (`llama3.1:8b`, Builtin Tools off)
+
+| Run | Setup | Prompt | Calls | What happened | Time |
+| --- | --- | --- | --- | --- | --- |
+| K1 | `require_user_key` on, no key anywhere | Which UK bank holidays are left in 2026 in England? | `research` x1 | The tool returned "Error: The Tabstack tool needs your own API key, and none is set. Add it under Chat Controls > Valves > Tabstack. ..." without contacting Tabstack; status "Research failed". The model paraphrased it and then invented a JSON "command" with an `apikey` field for the user to run. (`screenshots/live-K1-no-user-key.png`) | 24.9 s |
+| K2 | Admin key empty, `require_user_key` on, key set only in this user's valve | Use the research tool twice, as two separate calls: first research which UK bank holidays are left in 2026 in England, then research who won the most recent Formula 1 Grand Prix. | `research` x2 in one turn | The first call ran on the user's key (the only key set) and returned 5 sources. The second returned "Error: research already ran 1 time for this reply, so it was not run again and nothing was charged. ..." with status "Research not run again". The reply answered the bank holiday question, did not mention the refused Formula 1 question, and kept no `[n]` markers. (`screenshots/live-K2-second-call-refused.png`) | 46.6 s |
+| K3 | As K2 | First read https://docs.python.org/3/whatsnew/3.14.html with focus on Zstandard and tell me what it says about Zstandard support. Then use research to find out when Python 3.15 is due to be released. | `read_url` x1 with `focus: "Zstandard"`, `research` x1 | `read_url` passed 6,998 characters with "[Focused on: zstandard. Kept 3 of 69 parts of the page (6,650 of 148,117 characters), in page order; ...]"; the text mentions `zstd` 8 times. The page became source 1 and Research numbered its 7 sources `[2]` to `[8]`, matching the order of the 8 sources on the message. The reply described `compression.zstd` and gave 9 October 2026 for Python 3.15.0, with no `[n]` markers. (`screenshots/live-K3-read-then-research.png`) | 62.7 s |
+
+### 11.2 Whether the model calls the tool with built-in tools on
+
+Prompts from section 7. Each pair of runs used both models with the model's
+Builtin Tools capability switched as shown.
+
+| Run | Builtin Tools | `research` docstring | `llama3.1:8b` | `qwen3:8b` |
+| --- | --- | --- | --- | --- |
+| B (PSF prompt) | on, all categories | as committed | no call: "I don't have information on what the Python Software Foundation announced this week." 27.9 s (`screenshots/live-B1-builtins-on-no-call.png`) | no call: no real-time access, pointed to the PSF blog. 90.4 s |
+| V1 (PSF prompt) | on, all categories | reworded to "Call this for any question about news, announcements, releases, prices, or events ... Do not answer from memory or say you have no real-time access; call this tool instead." (not committed) | no call. 331.8 s | no call. 263.7 s |
+| P1 (PSF prompt) | on, only `memory`, `knowledge`, `files` | as committed | `research` x1, 3 sources, reply without markers. 373.0 s | `research` x1, 4 sources, all markers kept and shown as chips. 211.5 s (`screenshots/live-P1-slim-builtins-called.png`) |
+| P2 (Formula 1 prompt) | on, only `memory`, `knowledge`, `files` | as committed | `research` x1, 4 sources, markers kept. 256.7 s (`screenshots/live-P2-slim-builtins-called.png`) | `research` x1, 4 sources, markers kept. 421.3 s |
+
+The categories were set through the model's `meta.builtinTools` (the 17
+categories in v0.12.3: `automations`, `calendar`, `channels`, `chats`,
+`code_interpreter`, `files`, `image_generation`, `knowledge`, `memory`,
+`notes`, `notifications`, `skills`, `subagents`, `tasks`, `time`,
+`user_input`, `web_search`). `files` only adds tools when the chat has files.
+Times in this section are longer than in section 8 because Ollama was
+switching between the two models.
+
+What these runs show, for these two models and prompts only: with every
+built-in category on, neither model called the tool in 4 runs, and rewording
+the docstring did not change that. With only memory, knowledge and files on,
+both models called it in all 4 runs. Which of the 14 other categories matters
+was not narrowed down.
+
+### 11.3 Clean-up
+
+After the runs, the key was cleared from the user valve (the admin valve was
+already empty), `require_user_key` was switched back off, and both models were
+set back to Builtin Tools off with no per-category settings.
+
+Calls made with the working key in this section: 6 Research (K2, K3, P1 x2,
+P2 x2; the refused second call in K2 made none) and 1 Extract (K3). Totals for
+2026-10-26, with section 10: **6 Research calls and 2 Extract calls**.
