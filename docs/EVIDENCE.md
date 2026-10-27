@@ -550,19 +550,29 @@ restored and this was run on 2026-10-26 to check the other mode.
 K2 prompt, and no `id`, `chat_id` or `session_id`; `llama3.1:8b`, key in the
 admin valve, default valves.
 
-- Open WebUI ran the tools itself before streaming the reply, so
-  `__message_id__` was None. The model listed `research` twice; the first call
-  returned a cited answer and the second returned 'Error: research already
-  ran 1 time for this reply, so it was not run again for "most recent Formula
-  1 Grand Prix winner" and nothing was charged. ...' Both results appeared in
-  the stream's `sources`.
+- Open WebUI ran the tools itself: the stream's `sources` held two tool
+  results, a cited answer from the first `research` call and, from the
+  second, 'Error: research already ran 1 time for this reply, so it was not
+  run again for "most recent Formula 1 Grand Prix winner" and nothing was
+  charged. ...' The request had no message id, so by the source
+  (VERIFIED.md 1.7b) the tool was given `__message_id__=None`; the tool does
+  not log it.
 - The reply gave the 2026 bank holidays with `[1]` and `[2]` markers and ended
   "As for the most recent Formula 1 Grand Prix winner, I couldn't find any
   information in the provided context." 45.1 s.
-- Without the fallback, the second call would have run and been billed: the
-  tool would have had no key to count it under.
+- The refusal came from the request fallback, the only per-reply counting
+  available with no message id. A run without the fallback was not made.
 
-The key was cleared from the admin valve afterwards.
+After a second code review, the fallback was rewritten to keep a call
+counter per request object instead of a `request:N` key in the shared
+counter. The same request was run again on 2026-10-27 with that code: the
+same two tool results (one cited answer, one refusal for the Formula 1
+question), and a reply that ended "For the most recent Formula 1 Grand Prix
+winner, I was unable to find the information in the provided context."
+106.0 s.
 
-Calls made with the working key in this section: 1 Research. Totals for
-2026-10-26: **12 Research calls and 2 Extract calls**.
+The key was cleared from the admin valve after each run.
+
+Calls made with the working key in this section: 2 Research (1 on each
+day). Totals: **12 Research and 2 Extract calls on 2026-10-26, and 1
+Research call on 2026-10-27**.

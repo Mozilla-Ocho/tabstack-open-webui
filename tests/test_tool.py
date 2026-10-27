@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import inspect
 import json
 from collections.abc import AsyncIterator, Callable, Coroutine, Iterable
@@ -775,6 +776,51 @@ def test_untrackable_request_means_no_limit() -> None:
         assert run(tool.read_url("https://a.example", __request__=request)).startswith(
             "Page:"
         )
+    assert len(client.extract.calls) == 2
+
+
+def test_request_counter_goes_with_the_request() -> None:
+    client = FakeClient(page=load_json("extract_page.json"))
+    tool = make_tool(client)
+    request = FakeRequest()
+    run(tool.read_url("https://a.example", __request__=request))
+    counters = tool._request_calls  # pyright: ignore[reportPrivateUsage]
+    assert len(counters) == 1
+    del request
+    gc.collect()
+    assert len(counters) == 0
+
+
+def test_many_requests_do_not_crowd_out_a_reply_counter() -> None:
+    # Requests are counted apart from messages, so no number of them can push a
+    # live reply's counter out and let that reply make another billed call.
+    client = FakeClient(page=load_json("extract_page.json"))
+    tool = make_tool(client, max_read_url_calls_per_reply=1)
+    url = "https://a.example"
+    assert run(tool.read_url(url, __message_id__="m1")).startswith("Page:")
+    for _ in range(1100):
+        run(tool.read_url(url, __request__=FakeRequest()))
+    assert run(tool.read_url(url, __message_id__="m1")).startswith("Error:")
+
+
+def test_without_a_message_id_numbering_starts_at_one() -> None:
+    # Citation events with no message id attach to no message, so a later call
+    # in the same request must not number after them or skip any.
+    client = FakeClient(
+        page=load_json("extract_page.json"),
+        stream=FakeStream(sdk_events("research_complete.jsonl")),
+    )
+    tool = make_tool(client)
+    recorder = Recorder()
+    request = FakeRequest()
+    run(
+        tool.read_url(
+            "https://a.example", __event_emitter__=recorder, __request__=request
+        )
+    )
+    result = run(tool.research("q", __event_emitter__=recorder, __request__=request))
+    assert "[1] Tools overview - https://www.example.com/docs/tools" in result
+    assert len(recorder.citations()) == 5
 
 
 def test_read_url_limit_per_reply() -> None:

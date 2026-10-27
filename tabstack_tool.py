@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import itertools
 import re
 import unicodedata
 import weakref
@@ -1261,33 +1260,44 @@ class Tools:
         # single call on purpose: it caps billed calls per reply even when a
         # model keeps calling the tool. Each Open WebUI worker counts separately.
         self._calls = CallCounter()
-        # Fallback for replies with no message id. With Native function calling
-        # Open WebUI only runs tools when there is one, but in Default mode it
-        # runs every tool call the model lists while preparing the request, and
-        # an API request without an `id` has none. The request object is the
-        # same for all of them; entries go when it is collected.
-        self._request_keys: weakref.WeakKeyDictionary[object, str] = (
+        # Calls with no message id are counted per request instead. In Default
+        # function calling, Open WebUI runs every tool call the model lists while
+        # preparing the request, and an API request without an `id` has no
+        # message id; pipe functions can also call tools through
+        # `__metadata__["tools"]` in any mode. The request object is the same for
+        # every call in one request, and its counter goes when it is collected,
+        # so it never crowds out the message counters above.
+        self._request_calls: weakref.WeakKeyDictionary[object, CallCounter] = (
             weakref.WeakKeyDictionary()
         )
-        self._request_numbers = itertools.count(1)
         # Citation numbers are per message, so a later call in the same reply
-        # has to number its sources after the ones already sent.
+        # has to number its sources after the ones already sent. Only kept with
+        # a message id: without one, citation events attach to no message.
         self._shown = ShownSources()
 
-    def _reply_key(self, message_id: str | None, request: object | None) -> str | None:
-        """Return a key shared by every call in one reply, or None if unknown."""
+    def _take_call(
+        self,
+        operation: Operation,
+        message_id: str | None,
+        request: object | None,
+        limit: int,
+    ) -> bool:
+        """Count a call for this reply; False when the reply has used its limit."""
         if message_id:
-            return f"message:{message_id}"
+            return self._calls.take(f"{operation}:{message_id}", limit)
         if request is None:
-            return None
+            return True
         try:
-            key = self._request_keys.get(request)
-            if key is None:
-                key = f"request:{next(self._request_numbers)}"
-                self._request_keys[request] = key
-        except TypeError:  # not hashable or not weak-referenceable
-            return None
-        return key
+            counter = self._request_calls.get(request)
+            if counter is None:
+                counter = CallCounter()
+                self._request_calls[request] = counter
+        except TypeError:
+            # Not hashable or not weak-referenceable, so there is nothing to
+            # count against. No current Open WebUI path does this, and the tool
+            # has no channel to report it, so the call goes ahead uncapped.
+            return True
+        return counter.take(operation, limit)
 
     def _choose_key(self, user: Mapping[str, object] | None) -> ChosenKey | None:
         """Pick the key for this call from the user's and the admin's valves."""
@@ -1341,8 +1351,7 @@ class Tools:
                 FailureKind.BAD_REQUEST, "research", detail="the question was empty"
             )
         limit = valves.max_research_calls_per_reply
-        reply = self._reply_key(__message_id__, __request__)
-        if reply and not self._calls.take(f"research:{reply}", limit):
+        if not self._take_call("research", __message_id__, __request__, limit):
             await status.done("Research not run again")
             return failure_message(
                 FailureKind.CALL_LIMIT, "research", detail=query, call_limit=limit
@@ -1394,13 +1403,13 @@ class Tools:
                 detail="Tabstack returned an empty answer",
             )
 
-        shown = self._shown.get(reply) if reply else ()
+        shown = self._shown.get(__message_id__) if __message_id__ else ()
         answer = format_research_answer(outcome.report, outcome.sources, shown)
         new = [s for s in answer.sources if not s.already_shown]
         for source in new:
             await status.send(citation_event(source))
-        if reply and status.active:
-            self._shown.add(reply, [s.url for s in new])
+        if __message_id__ and status.active:
+            self._shown.add(__message_id__, [s.url for s in new])
         await status.done(finished_status(len(answer.sources)))
         return answer.text
 
@@ -1435,8 +1444,7 @@ class Tools:
         key = chosen.value
 
         calls = valves.max_read_url_calls_per_reply
-        reply = self._reply_key(__message_id__, __request__)
-        if reply and not self._calls.take(f"read_url:{reply}", calls):
+        if not self._take_call("read_url", __message_id__, __request__, calls):
             await status.done("Page not read again")
             return failure_message(
                 FailureKind.CALL_LIMIT, "read_url", detail=target, call_limit=calls
@@ -1479,7 +1487,7 @@ class Tools:
         max_chars = valves.read_url_max_chars
         body, _ = page_body(page.content, max_chars, focus)
         await status.send(page_citation_event(page_url, title, body))
-        if reply and status.active:
-            self._shown.add(reply, [page_url])
+        if __message_id__ and status.active:
+            self._shown.add(__message_id__, [page_url])
         await status.done(f"Read {host}")
         return format_page(page_url, title, page.content, max_chars, focus)

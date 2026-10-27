@@ -210,31 +210,6 @@ Paths below are relative to those checkouts: `sdk/` is the unpacked wheel
   `'__message_id__': metadata.get('message_id')` once per request, so every
   tool call in the agentic loop of one reply sees the same id. Seen live: all
   repeated calls in run R4 belonged to one assistant message.
-- A request to `/api/chat/completions` with no `id` (or `message_ids`) in the
-  body gets `message_id` None, so tools see `__message_id__=None`
-  (`main.py`, `chat_completion`: `form_data.pop('id', None)`, then the
-  "Legacy/direct" branch sets `metadata['message_id']` from it). Checked
-  2026-10-26 on v0.12.3.
-- With Native function calling, Open WebUI only runs tools itself when the
-  request has both a `chat_id` and a message id (`utils/middleware.py`,
-  `get_event_emitter_and_caller`, and the `if event_emitter:` branch of
-  `streaming_chat_response_handler`). Without them it hands the model's tool
-  calls back to the API client. Checked 2026-10-26 on v0.12.3, in source and
-  live (EVIDENCE.md section 12.3).
-- In Default function calling (`params.function_calling == "legacy"`, settable
-  per request), Open WebUI runs every tool call the model lists while
-  preparing the request (`utils/middleware.py`, `chat_completion_tools_handler`,
-  `for tool_call in result.get('tool_calls')`), with the same `extra_params`.
-  An API request with no `id` then reaches the tool with `__message_id__=None`.
-  Seen live in EVIDENCE.md section 13.
-- `__request__` is the same object for every tool call in one request:
-  `process_chat_payload` builds `extra_params` once with
-  `'__request__': request` and `get_tools` binds them to each tool function
-  with `functools.partial` (`utils/tools.py`,
-  `get_async_tool_function_and_apply_extra_params`, which also drops any extra
-  param not in the function's signature). The tool uses it as the per-reply
-  key when `__message_id__` is missing. Starlette's `Request` is hashable and
-  can be weakly referenced (checked with `starlette` from PyPI, 2026-10-26).
 - `CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS` caps tool-calling turns per reply,
   default 256, `-1` for unlimited, read once at start-up and not editable in
   the admin UI (`owui/backend/open_webui/env.py`; docs
@@ -245,6 +220,43 @@ Paths below are relative to those checkouts: `sdk/` is the unpacked wheel
   signed the session out. `owui/backend/start.sh` writes a generated
   `WEBUI_SECRET_KEY` to `.webui_secret_key` in the working directory
   (`/app/backend`), not in the data volume, when the variable is unset.
+
+### 1.7b Calls with no message id - SOURCE ONLY and OBSERVED
+
+None of this is in the Open WebUI docs. It depends on internals that a later
+release could change, so re-check it when upgrading.
+
+- With Native function calling, Open WebUI only runs tools itself when the
+  request has both a `chat_id` and a message id (`utils/middleware.py`,
+  `get_event_emitter_and_caller`, and the `if event_emitter:` branch of
+  `streaming_chat_response_handler`). Without them it hands the model's tool
+  calls back to the API client. SOURCE ONLY, and OBSERVED in EVIDENCE.md
+  section 12.3. Checked 2026-10-26 on v0.12.3.
+- In Default function calling (`params.function_calling == "legacy"`,
+  settable per request), Open WebUI runs every tool call the model lists,
+  one after another, while preparing the request (`utils/middleware.py`,
+  `chat_completion_tools_handler`, `for tool_call in
+  result.get('tool_calls')`), with the same `extra_params`. For a request to
+  `/api/chat/completions` with no `id` (or `message_ids`) in the body,
+  `metadata['message_id']` is None (`main.py`, `chat_completion`:
+  `form_data.pop('id', None)`, then the "Legacy/direct" branch), so the tool
+  gets `__message_id__=None`. SOURCE ONLY;
+  the tool running and being capped by the request fallback was OBSERVED in
+  EVIDENCE.md section 13. Checked 2026-10-26 on v0.12.3.
+- Pipe functions can reach the bound tool callables through
+  `__metadata__["tools"]` (`utils/middleware.py`, where `metadata['tools']`
+  is set "so downstream consumers (e.g. pipe functions) can access all
+  tools") and call them with no message id in any mode. SOURCE ONLY; not run.
+- `__request__` is the same object for every tool call in one request:
+  `process_chat_payload` builds `extra_params` once with
+  `'__request__': request` and `get_tools` binds them to each tool function
+  with `functools.partial` (`utils/tools.py`,
+  `get_async_tool_function_and_apply_extra_params`, which also drops any
+  extra param not in the function's signature). SOURCE ONLY. Starlette's
+  `Request` hashes by identity and can be weakly referenced: checked with
+  Starlette 1.8.0 inside the Open WebUI v0.12.3 container and 1.10.0 from
+  PyPI, 2026-10-27. The tool keeps a per-request call counter in a
+  `WeakKeyDictionary` keyed by it.
 
 ### 1.8 Competing built-in web tools - CONFIRMED (source)
 
