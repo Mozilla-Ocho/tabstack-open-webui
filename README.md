@@ -15,7 +15,27 @@ on its own:
 It is one Python file, `tabstack_tool.py`, pasted into the Open WebUI admin
 panel. There is no extra service to run.
 
-Install steps are in [docs/INSTALL.md](docs/INSTALL.md).
+![The tool answering "What did the Python Software Foundation announce this
+week?": status lines while Research runs, then a reply with source chips next
+to each point](docs/screenshots/hero.gif)
+
+*A real run with `qwen3:8b` on Open WebUI v0.12.3, sped up. The wait while
+the model loaded and thought before calling the tool is cut out.*
+
+## Quick start
+
+1. **Add the tool.** In Open WebUI, open **Workspace > Tools**, click
+   **Create**, paste the whole of [`tabstack_tool.py`](tabstack_tool.py) over
+   the sample, and click **Save & Create**.
+2. **Add your key.** Click the gear icon on the **Tabstack** row and paste
+   your Tabstack API key into **Tabstack Api Key**.
+3. **Turn it on for a model.** In **Admin Panel > Settings > Models**, open
+   the model, add **Tabstack** under **Tools**, and click **Save & Update**.
+
+Then ask something current, such as "What did the Python Software Foundation
+announce this week?". If the model never calls the tool, switch off most of
+its built-in tools; the [install guide](docs/INSTALL.md) has the details,
+screenshots and the other settings.
 
 ## Requirements
 

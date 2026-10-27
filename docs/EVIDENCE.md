@@ -576,3 +576,26 @@ The key was cleared from the admin valve after each run.
 Calls made with the working key in this section: 2 Research (1 on each
 day). Totals: **12 Research and 2 Extract calls on 2026-10-26, and 1
 Research call on 2026-10-27**.
+
+## 14. README image
+
+Run on 2026-10-27 to make `screenshots/hero.gif`. `qwen3:8b`, Builtin Tools
+off, key in the admin valve (cleared afterwards), the PSF prompt, through the
+real UI with Playwright at a 1180 x 820 window. A screenshot was taken
+whenever the page changed, about every 0.7 s, for 449.8 s.
+
+- `research` x1. Statuses seen: Starting research, Planning searches,
+  Searching, round 1 of 1, Writing the answer, Research finished, 3 sources.
+- The reply kept its `[n]` markers, shown as source chips next to each point,
+  with a 3-source panel.
+- The GIF uses 33 of the 467 screenshots: the typed question, one "Thinking"
+  frame, one frame per status, the reply as it streamed, and the finished
+  reply. The first 199 screenshots (Ollama loading the model, then the model
+  thinking before it called the tool) are left out apart from that one
+  frame, and the frame timings are set by hand, so the GIF is faster than
+  the run. Open WebUI's "A new version is available" notice, which comes
+  from this install and not from the tool, was hidden in the page before the
+  screenshots were taken.
+
+Calls made with the working key in this section: 1 Research.
+
