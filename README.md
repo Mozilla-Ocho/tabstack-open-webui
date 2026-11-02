@@ -26,9 +26,12 @@ the model loaded and thought before calling the tool is cut out.*
 
 1. **Add the tool.** In Open WebUI, open **Workspace > Tools**, click
    **Create**, paste the whole of [`tabstack_tool.py`](tabstack_tool.py) over
-   the sample, and click **Save & Create**.
+   the sample, and click **Save & Create**. The
+   [raw file](https://raw.githubusercontent.com/Mozilla-Ocho/tabstack-open-webui/main/tabstack_tool.py)
+   is the easiest to copy from.
 2. **Add your key.** Click the gear icon on the **Tabstack** row and paste
-   your Tabstack API key into **Tabstack Api Key**.
+   your Tabstack API key into **Tabstack Api Key**. You can get a key from
+   the [Tabstack console](https://console.tabstack.ai/signup).
 3. **Turn it on for a model.** In **Admin Panel > Settings > Models**, open
    the model, add **Tabstack** under **Tools**, and click **Save & Update**.
 
@@ -42,7 +45,7 @@ screenshots and the other settings.
 - Open WebUI. Tested on v0.12.3 (see [docs/EVIDENCE.md](docs/EVIDENCE.md)).
 - A model that supports tool calling, with Open WebUI's function calling left
   on Native (the default).
-- A Tabstack API key.
+- A Tabstack API key, from the [Tabstack console](https://console.tabstack.ai/signup).
 
 Open WebUI installs the SDK (`tabstack==2.8.5`) from the file's frontmatter
 when the tool is saved. If your deployment sets

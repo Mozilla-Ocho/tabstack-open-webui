@@ -1,5 +1,5 @@
 [project]
-name = "tabstack-openwebui-tool"
+name = "tabstack-open-webui"
 version = "0.1.0"
 description = "A native Open WebUI tool that gives a local model Tabstack Research and Extract."
 readme = "README.md"

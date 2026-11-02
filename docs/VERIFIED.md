@@ -137,6 +137,19 @@ Paths below are relative to those checkouts: `sdk/` is the unpacked wheel
   is created; editing an existing tool does not refresh them (docs,
   `tools/development.mdx`, "Metadata auto-fill"; seen live).
 
+### 1.4b Frontmatter `git_url` - SOURCE ONLY (docs and source)
+
+- The frontmatter carries `git_url:` pointing at this repo. Every
+  `key: value` line in the top docstring is parsed into a dict
+  (`utils/plugin.py`, `extract_frontmatter`) and stored as `meta.manifest`
+  on both create and update (`routers/tools.py`).
+- `git_url` appears in the example docstring in the docs
+  (`tools/development.mdx`, "Example Top-Level Docstring"; checked in
+  `open-webui/docs` at `8f32b9e`, 2026-11-02). In v0.12.3 no frontend code
+  reads `manifest.git_url`; the tools list only shows `version` and
+  `funding_url`. It is metadata for anyone reading the file or the stored
+  manifest, not a link in the UI.
+
 ### 1.5 Runtime Python - CONFIRMED (source)
 
 - The official image is built `FROM python:3.11-slim-bookworm`

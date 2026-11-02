@@ -1,6 +1,7 @@
 """
 title: Tabstack
 description: Cited answers from live sources and clean Markdown from URLs, by Tabstack.
+git_url: https://github.com/Mozilla-Ocho/tabstack-open-webui
 version: 0.1.0
 license: MIT
 requirements: tabstack==2.8.5

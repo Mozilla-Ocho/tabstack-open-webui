@@ -447,7 +447,7 @@ wheels = [
 ]
 
 [[package]]
-name = "tabstack-openwebui-tool"
+name = "tabstack-open-webui"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

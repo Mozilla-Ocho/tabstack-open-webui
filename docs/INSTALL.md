@@ -13,7 +13,8 @@ You need:
 - A model that supports **tool calling**, for example `llama3.1:8b` or
   `qwen3:8b` from Ollama. Leave the model's function calling on its default,
   Native.
-- A **Tabstack API key**.
+- A **Tabstack API key**. Sign up for one in the
+  [Tabstack console](https://console.tabstack.ai/signup).
 - The Open WebUI server must be able to reach the internet, both to install
   the Tabstack SDK when you save the tool and to call Tabstack.
 
@@ -25,8 +26,9 @@ If your Open WebUI runs with `ENABLE_PIP_INSTALL_FRONTMATTER_REQUIREMENTS=False`
 
 1. Open **Workspace** in the left sidebar, then the **Tools** tab.
 2. Click **Create** (top right). An editor opens with a sample tool in it.
-3. Open [`tabstack_tool.py`](../tabstack_tool.py), copy the whole file, click
-   into the editor, select all and paste over the sample.
+3. Open the [raw `tabstack_tool.py`](https://raw.githubusercontent.com/Mozilla-Ocho/tabstack-open-webui/main/tabstack_tool.py),
+   copy the whole file, click into the editor, select all and paste over the
+   sample.
 4. The **Tool Name**, **Tool ID** and **Tool Description** fields above the
    editor fill themselves in from the top of the file (`Tabstack`,
    `tabstack`, and a one-line description). Leave them as they are.
