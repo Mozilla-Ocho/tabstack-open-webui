@@ -191,6 +191,13 @@ The tool never reads environment variables; its key comes only from the
 admin valve or the user's own valve. If you keep a `TABSTACK_API_KEY` in a
 local `.env` for scripts you run by hand, git ignores it.
 
+## Feedback
+
+Report a problem or request a feature in
+[tabstack-feedback](https://github.com/Mozilla-Ocho/tabstack-feedback/issues/new/choose).
+Include the tool and Open WebUI versions and the `Error:` message the chat
+showed. Never paste API keys or personal data into an issue.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
