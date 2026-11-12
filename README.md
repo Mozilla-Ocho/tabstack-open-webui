@@ -195,9 +195,8 @@ local `.env` for scripts you run by hand, git ignores it.
 
 Report a problem or request a feature in
 [tabstack-feedback](https://github.com/Mozilla-Ocho/tabstack-feedback/issues/new/choose).
-Include the tool and Open WebUI versions and the `x-trace-id` from the
-failing response when relevant. Never paste API keys or personal data into
-an issue.
+Include the tool and Open WebUI versions and the `Error:` message the chat
+showed. Never paste API keys or personal data into an issue.
 
 ## License
 
